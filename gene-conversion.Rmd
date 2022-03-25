@@ -1,0 +1,1497 @@
+```{r load-data, include=FALSE}
+source("load-data.R")
+source("utils/gene-conversion-utils.R")
+```
+
+### ECDF IGC code
+```{r ECDF}
+df.ecdf <- df.all %>%
+    dplyr::select(sample, cum.bp, name, Superpopulation) %>%
+    mutate(cum.bp = as.numeric(cum.bp)) %>%
+    mutate(name = as.numeric(name)) %>%
+    group_by(name, sample, Superpopulation) %>%
+    summarise(cum.bp = c(max(cum.bp), min(cum.bp)) / 1e6) %>%
+    data.table()
+
+df.sum.ecdf <- df.all %>%
+    arrange(-name) %>%
+    group_by(Superpopulation) %>%
+    mutate(cum.bp = cumsum(length) / length(unique(sample))) %>%
+    dplyr::select(cum.bp, name, Superpopulation) %>%
+    group_by(name, Superpopulation) %>%
+    summarise(cum.bp = c(max(cum.bp), min(cum.bp)) / 1e6) %>%
+    data.table()
+
+df.text.ecdf <- df.ecdf %>%
+    mutate(log = log10(name), g = ceiling(log)) %>%
+    group_by(g, sample, Superpopulation) %>%
+    summarise(cum.bp = max(cum.bp), name = name[which.max(cum.bp)]) %>%
+    group_by(g, Superpopulation) %>%
+    summarise(name = mean(name), sd = sd(cum.bp), cum.bp = mean(cum.bp)) %>%
+    mutate(label = paste(round(cum.bp, 2), "+/-", round(sd, 2))) %>%
+    drop_na()
+# %>%  mutate(Superpopulation="Total")
+df.text.ecdf
+
+p.mbp.gc <- ggplot(
+    df.ecdf,
+    aes(x = name, y = cum.bp, group = paste0(sample, Superpopulation))
+) +
+    geom_line(alpha = 0.99, size = 0.2, linetype = "dashed", aes(color = Superpopulation)) + # (geom = "step")+
+    geom_line(data = df.sum.ecdf, aes(group = Superpopulation), color = "black", size = 1.5, alpha = 0.6) + # (geom = "step")+
+    geom_text_repel(
+        data = df.text.ecdf, aes(label = label, group = "a"),
+        nudge_x = 0.5, nudge_y = 4, arrow = arrow(length = unit(0.1, "cm")), color = "black"
+    ) +
+    scale_x_continuous(trans = "log10", label = comma) +
+    scale_y_continuous(labels = comma) +
+    annotation_logticks(side = "b") +
+    scale_color_brewer(palette = "Set1") +
+    xlab("Number of SNV events that must map better at a new location") +
+    ylab("Average Mbp of gene conversion per haplotype") +
+    facet_wrap(~Superpopulation, ncol = 2) +
+    theme_minimal_grid() +
+    theme(legend.position = "none")
+my_ggsave("{odir}/igc.mbp.pdf", width = 12 * 0.75, height = 16 * 0.75, plot = p.mbp.gc)
+
+
+p.mbp.gc <- ggplot(
+    df.ecdf %>% filter(Superpopulation == "Total"),
+    aes(x = name, y = cum.bp, group = sample)
+) +
+    geom_line(alpha = 0.99, size = 0.2, linetype = "dashed") +
+    geom_line(
+        aes(group = Superpopulation),
+        data = df.sum.ecdf %>% filter(Superpopulation == "Total"),
+        color = "black", size = 1.5, alpha = 0.6
+    ) +
+    geom_text_repel(
+        data = df.text.ecdf %>% filter(Superpopulation == "Total"),
+        aes(label = label, group = "a"),
+        nudge_x = 0.5, nudge_y = 4,
+        arrow = arrow(length = unit(0.1, "cm")), color = "black"
+    ) +
+    scale_x_continuous(trans = "log10", label = comma) +
+    scale_y_continuous(labels = comma) +
+    annotation_logticks(side = "b") +
+    xlab("Number of SNV events that must map better at a new location") +
+    ylab("Average Mbp of gene conversion per haplotype") +
+    # facet_wrap(~Superpopulation, ncol = 2) +
+    theme_minimal_grid() +
+    theme(legend.position = "none")
+my_ggsave("{odir}/igc.mbp.simple.pdf", width = 8, height = 6, plot = p.mbp.gc)
+```
+
+## Length and support
+```{r Length and support}
+library(gt)
+library(ggtext)
+len_sum <- quantile(pre_merged_df$length / 1e3, c(0.25, 0.5, 0.75, 0.9, 0.95, .99, 1))
+len_sum <- c(len_sum, mean = mean(pre_merged_df$length / 1000))
+len_sum
+html_sum <- t(len_sum) %>%
+    as_tibble() %>%
+    gt() %>%
+    as_raw_html(inline_css = TRUE)
+len_text <- res_scalar <- paste0(capture.output(
+    print(round(len_sum, 2))
+), collapse = "\n")
+len_text
+
+pre_merged_df <- pre_merged_df %>%
+    mutate(length = reference_end - reference_start)
+p.len <- pre_merged_df %>%
+    ggplot(aes(x = length)) +
+    geom_histogram(bins = 70) +
+    scale_x_continuous(label = comma, trans = "log10") +
+    # scale_x_continuous(label = comma) +
+    scale_y_continuous(labels = comma) + # , trans = "log10") +
+    annotation_logticks(side = "b") +
+    ylab("Count") +
+    xlab("Length of IGC") +
+    # ggtitle("", subtitle = len_text) +
+    theme_minimal_grid() +
+    theme(legend.position = "none")
+my_ggsave("{odir}/igc_len.pdf", width = 8, height = 4, plot = p.len)
+
+snv_sum <- quantile(pre_merged_df$name, c(0.25, 0.5, 0.75, 0.9, 0.95, .99, 1))
+snv_sum <- c(snv_sum, mean = mean(pre_merged_df$name))
+snv_sum
+mean(pre_merged_df$name / pre_merged_df$length * 1000)
+
+p.snv <- igc %>%
+    ggplot(aes(x = name)) +
+    geom_histogram(bins = 50) +
+    scale_x_continuous(label = comma, trans = "log10") +
+    scale_y_continuous(labels = comma, trans = "log10") +
+    annotation_logticks(side = "b") +
+    ylab("") +
+    xlab("") +
+    theme_minimal_grid() +
+    theme(legend.position = "none")
+my_ggsave("{odir}/snv.pdf", width = 8, height = 2, plot = p.snv)
+
+
+my_lab <- function(x) {
+    comma(10**x)
+}
+
+p.len.snv <- igc %>%
+    # filter(name > 0 & length > 500) %>%
+    ggplot(aes(x = length, y = name)) +
+    geom_hex(aes(fill = stat(log10(count))), bins = 20) +
+    stat_cor(method = "pearson") +
+    # geom_point(alpha=0)+
+    geom_smooth(method = "lm", se = FALSE, size = 1.5, color = "darkred", linetype = "dashed") +
+    scale_x_continuous(label = comma, trans = "log10") +
+    scale_y_continuous(labels = comma, trans = "log10", lim = c(0.9, NA)) +
+    scale_fill_viridis_c("IGC count", option = "magma", labels = my_lab) +
+    xlab("IGC length (bp)") +
+    ylab("# of IGC supporting SNVs") +
+    annotation_logticks() +
+    theme_minimal_grid() +
+    theme(legend.position = "right")
+# ggMarginal(p.len.snv, type="histogram")
+my_ggsave("{odir}/len.snv.pdf", width = 8, height = 6, plot = p.len.snv)
+```
+
+## 
+```{r, ideogram figure }
+min_n <- 0
+myn <- 1e9
+merged_df
+kp.df <- igc_sd[
+    reference_name == `#reference_name.liftover` # & n >= min_n
+] %>%
+    head(myn) %>%
+    data.table()
+colnames(igc_sd)
+dim(kp.df)
+
+pdf(glue("{odir}/intra-gc-with-freq-at-least-{min_n}.pdf"),
+    height = 7, width = 14
+)
+kp <- plotKaryotype(
+    genome = converter$genome, cytobands = converter$cyto, chromosomes = NOYM,
+    plot.type = 2
+)
+kpPlotLinks(kp,
+    data = toGRanges(
+        kp.df[
+            reference_start < reference_start.liftover,
+            c("#reference_name.liftover", "reference_start.liftover", "reference_end.liftover")
+        ]
+    ),
+    data2 = toGRanges(
+        kp.df[
+            reference_start < reference_start.liftover,
+            c("reference_name", "reference_start", "reference_end")
+        ]
+    ),
+    col = transparent("#003950", amount = 0),
+    border = NA
+    # border = transparent(OLDCOLOR, amount = 0.9)
+)
+
+kpPlotLinks(kp,
+    data = toGRanges(
+        kp.df[
+            reference_start > reference_start.liftover,
+            c("#reference_name.liftover", "reference_start.liftover", "reference_end.liftover")
+        ]
+    ),
+    data2 = toGRanges(
+        kp.df[
+            reference_start > reference_start.liftover,
+            c("reference_name", "reference_start", "reference_end")
+        ]
+    ),
+    col = transparent("darkorange", amount = 0),
+    border = NA,
+    data.panel = 2
+    # border = transparent(OLDCOLOR, amount = 0.9)
+)
+
+dev.off()
+```
+```{r}
+###
+cir.df <- merged_df[
+    reference_name != `#reference_name.liftover` & n >= min_n
+] %>%
+    filter(reference_name != "chrY" & `#reference_name.liftover` != "chrY") %>%
+    head(myn) %>%
+    data.table()
+
+cyto.df <- data.frame(CYTOFULL)[
+    ,
+    c("seqnames", "start", "end", "seqnames", "gieStain")
+] %>% filter(seqnames != "chrY")
+cyto.df <- cyto.df[order(cyto.df$gieStain, cyto.df$seqnames), ]
+cyto.df$seqnames <- as.character(cyto.df$seqnames)
+# ploting
+pdf(glue("{odir}/inter-gc-with-freq-at-least-{min_n}.pdf"), height = 6, width = 6)
+circos.clear()
+circos.par(cell.padding = c(0, 0, 0, 0))
+circos.initializeWithIdeogram(cyto.df, ideogram.height = .05, sort.chr = T)
+# circos.genomicRect(enriched[,1:3], ybottom =0, ytop=1, border = NA, col="red")
+# circos.genomicRainfall(sedef[,1:3])
+# circos.genomicRainfall(sedef.inter[,1:3]);  circos.genomicRainfall(sedef.inter[,c("chr2","start2", "end2")])
+d1 <- cir.df[
+    ,
+    c("#reference_name.liftover", "reference_start.liftover", "reference_end.liftover")
+]
+d2 <- cir.df[
+    ,
+    c("reference_name", "reference_start", "reference_end")
+]
+circos.genomicLink(d1, d2, col = NEWCOLOR, border = transparent(NEWCOLOR, amount = 0.95))
+dev.off()
+```
+
+
+## Donor vs acceptor across the genome
+```{r}
+igc_a.sd <- igc_sd[, c(acceptor_columns, "sample"), with = FALSE]
+igc_d.sd <- igc_sd[, c(donor_columns, "sample"), with = FALSE]
+
+pp <- getDefaultPlotParams(plot.type = 3) # $plot.params
+pp$ideogramlateralmargin <- 0.01
+# pp$ideogramheight=100
+pdf(glue("{odir}/ideo_gc_density.pdf"), height = 4, width = 18)
+kp <- plotKaryotype(
+    cytobands = converter$cyto,
+    genome = converter$genome,
+    plot.params = pp, plot.type = 3,
+)
+
+window <- 2e5
+kpPlotDensity(kp,
+    data = toGRanges(igc_a.sd),
+    data.panel = 1, window.size = window, col = acceptor_color
+) # , border=acceptor_color)
+kpPlotDensity(kp,
+    data = toGRanges(igc_d.sd),
+    data.panel = 2, window.size = window, col = donor_color
+) # , border=donor_color)
+
+kpPlotRegions(kp,
+    data = toGRanges(GENES_V1.1.sd),
+    r0 = -pp$data1inmargin / pp$data1height,
+    r1 = 0, avoid.overlapping = FALSE,
+    data.panel = 2,
+    border = NA
+)
+
+kpPlotRegions(kp,
+    data = (toGRanges(morb_sd)), #-width(toGRanges(morb_sd))/25,
+    r1 = 0, r0 = -pp$data2inmargin / pp$data2height,
+    data.panel = 1,
+    col = transparent(morb_sd$color, 0.0), avoid.overlapping = TRUE, border = NA
+)
+
+
+kpAddCytobandLabels(kp, cex = .75)
+# kpPlotMarkers(kp, data=toGRanges(converter$cyto), labels=converter$cyto$name, text.orientation = "horizontal",
+#              r1=0.5, cex=0.8,adjust.label.position = FALSE)
+
+dev.off()
+```
+
+
+```{r distance between IGC}
+acro <- c("chr13", "chr14", "chr15", "chr21", "chr22")
+igc.dist <- pre_merged_df %>%
+    filter(reference_name == `#reference_name.liftover`) %>%
+    mutate(
+        dist_between = pmin(
+            abs(reference_start - reference_start.liftover),
+            abs(reference_end - reference_end.liftover),
+            abs(reference_end - reference_start.liftover),
+            abs(reference_start - reference_end.liftover)
+        ),
+        reference_name = factor(reference_name, NOM)
+    ) %>%
+    mutate(ACRO = `reference_name` %in% acro | `#reference_name.liftover` %in% acro) %>%
+    mutate(length = reference_end - reference_start) %>%
+    data.table()
+
+p.igc.dist <- igc.dist %>%
+    ggplot(aes(x = dist_between, fill = reference_name)) +
+    geom_histogram(bins = 30) + # binwidth = 10000) +
+    scale_x_continuous(label = comma, trans = "log10") +
+    annotation_logticks(side = "b") +
+    theme_cowplot() +
+    facet_col(~ACRO) +
+    # facet_zoom(xlim = c(0, 1e6), zoom.size = 4) +
+    xlab("Distance between IGC acceptor and donor site") +
+    # scale_fill_manual("") +
+    ylab("# of intrachromosomal IGC events") +
+    guides(
+        fill = guide_legend("", ncol = 8)
+    ) +
+    theme(
+        legend.position = "bottom"
+    )
+my_ggsave("figures/igc_dist.pdf", height = 8, width = 8, plot = p.igc.dist)
+
+thresh <- 10
+p.igc.dist.len <- igc.dist %>%
+    # filter(igc.dist$n > 1) %>%
+    # filter(name > 10) %>%
+    # filter(length > 1e3) %>%
+    mutate(sSNV = case_when(
+        name >= thresh ~ glue("{thresh} or more supporting SNVs"),
+        TRUE ~ glue("less than {thresh} supporting SNVs")
+    )) %>%
+    ggplot(aes(x = dist_between, y = length)) +
+    geom_hex(aes(fill = stat(log10(count))), bins = 20) +
+    stat_cor(method = "pearson") +
+    geom_smooth(method = "lm", se = F, alpha = 0.2, size = 1) +
+    scale_x_continuous(label = comma, trans = "log10") +
+    scale_y_continuous(label = comma, trans = "log10") +
+    annotation_logticks(side = "lb") +
+    scale_fill_viridis_c("IGC count", option = "magma", labels = my_lab) +
+    theme_minimal_grid() +
+    facet_col(~sSNV) +
+    xlab("Distance between IGC acceptor and donor site") +
+    ylab("Length of IGC event") +
+    theme(
+        # legend.position = "bottom"
+    )
+
+tmp <- igc.dist %>%
+    # filter(igc.dist$n > 1) %>%
+    # filter(name > 10) %>%
+    # filter(length > 1e3) %>%
+    mutate(sSNV = case_when(
+        name >= thresh ~ glue("{thresh} or more supporting SNVs"),
+        TRUE ~ glue("less than {thresh} supporting SNVs")
+    )) %>%
+    ggplot(aes(x = as.numeric(name))) +
+    geom_histogram(bins = 100) +
+    scale_x_continuous(label = comma, trans = "log10") +
+    scale_y_continuous(label = comma, trans = "log10") +
+    # annotation_logticks("") +
+    theme_minimal_grid() +
+    xlab("support")
+my_ggsave("figures/igc_dist.pdf", height = 8, width = 8, plot = p.igc.dist.len)
+```
+
+```{r ideogram per haplotype}
+# uses these from other block
+condition <- TRUE
+igc_sd$label <- paste(igc_sd$Superpopulation, igc_sd$Sample)
+condition <- igc_sd$`#reference_name.liftover` == igc_sd$reference_name &
+    igc_sd$name > 0 &
+    igc_sd$sample %in% unique(igc_sd$sample)[1:1000] &
+    !(igc_sd$sample %in% c("GRCh38_2", "CHM1_2"))
+
+a <- igc_sd[condition, c(acceptor_columns, "label"), with = FALSE]
+d <- igc_sd[condition, c(donor_columns, "label"), with = FALSE]
+acceptor_left <- a$reference_start.liftover < d$reference_start
+dim(a)
+dim(d)
+sum(a$reference_start.liftover > a$reference_end.liftover)
+sum(d$reference_start > d$reference_end)
+mean(morb_sd$end - morb_sd$start) / 1e6
+mean(morb$end - morb$start) / 1e6
+
+chrs <- c("chr1", "chr2", "chr15", "chr16")
+make_gc_ideogram(a, d, chrs, "figures/subset_all_border_gc_events.pdf", height = 36 / 2, width = 55 / 2)
+make_gc_ideogram(a, d, NOYM, "figures/all_border_gc_events.pdf")
+
+for (chrm in NOM) {
+    make_gc_ideogram(a, d, chrm,
+        glue("figures/chrs/{chrm}_border_gc_events.pdf"),
+        height = 42 / 2, width = 32 / 2
+    )
+}
+
+chrm <- "chr15"
+make_gc_ideogram(a, d, chrm,
+    glue("figures/chrs/{chrm}_border_gc_events.pdf"),
+    height = 36, width = 12
+)
+```
+
+
+
+# TABLES
+
+
+```{r}
+IGC %>%
+    head(3) %>%
+    # add_gene_list_col(genelist = ALL_GENES_V1.1,
+    # outcol = "orthologous.genes") %>%
+    # add_gene_list_col(genelist = ALL_GENES_V1.1,
+    # outcol = "IGC.genes", cols = donor_columns) %>%
+    select(-thickStart, -thickEnd, -color, -strand, -score, -status, -cum.bp, -igc_count, -Sex, -Population) %>%
+    rename(setNames(names(.), gsub("\\.liftover", ".acceptor", names(.)))) %>%
+    rename(setNames(names(.), gsub(".*reference_name", "chrm", names(.)))) %>%
+    rename(setNames(names(.), gsub("reference_", "", names(.)))) %>%
+    rename_with(function(.) {
+        "# of supporting SNVs"
+    }, name) %>%
+    mutate(kbp = comma((end - start) / 1e3, accuracy = 0.1)) %>%
+    rename_with(function(c) {
+        paste0(c, ".donor")
+    }, matches("^(chrm|start|end|mismatches|perID_by_all)$")) %>%
+    group_by(group) %>%
+    mutate(`Seen in n samples` = n()) %>%
+    separate(sample, c("SampleID", "hap"), sep = "_") %>%
+    # merge(pop_small, all.x = T, by = "SampleID") %>%
+    dplyr::select(-Sample) %>%
+    data.table() %>%
+    openxlsx::write.xlsx("tables/Master_IGC.xlsx",
+        colWidths = 10,
+        firstRow = TRUE,
+        firstCol = TRUE,
+        gridLines = FALSE, colNames = TRUE
+    )
+```
+
+## Make a gene intersection table
+```{r}
+###
+igc_in_genes <- function(gene_bed, gene_based = TRUE, df = IGC) {
+    gene_cols <- c(
+        "gene", "gene_length",
+        "gene_chr", "gene_start",
+        "gene_end", "gene_name"
+    )
+    gene_cols <- c(gene_cols, pli_cols)
+    grouped_genes <- gene_bed %>%
+        filter(geneType == "protein_coding") %>%
+        group_by(chr, gene, strand) %>%
+        mutate(gene_length = end - start) %>%
+        slice(which.max(gene_length)) %>%
+        mutate(
+            gene_chr = chr,
+            gene_start = start,
+            gene_end = end
+        ) %>%
+        data.table()
+    grouped_genes
+    df$IGC_ID <- paste(df$sample, paste0("ID:", 1:nrow(df)), sep = "_")
+    head(df$ID)
+    o <- findOverlaps(
+        toGRanges(grouped_genes[, c("chr", "start", "end")]),
+        toGRanges(df[, ..acceptor_columns])
+    )
+    o2 <- findOverlaps(
+        toGRanges(grouped_genes[, c("chr", "start", "end")]),
+        toGRanges(df[, ..donor_columns])
+    )
+    gene_acceptor <- cbind(
+        grouped_genes[
+            queryHits(o),
+            ..gene_cols
+        ],
+        df[subjectHits(o)]
+    )
+    gene_donor <- cbind(
+        grouped_genes[
+            queryHits(o2),
+            ..gene_cols
+        ],
+        df[subjectHits(o2)]
+    )
+    gene_donor$status <- "Donor"
+    gene_igc <- rbind(gene_acceptor, gene_donor)
+
+    if (gene_based) {
+        out_df <- gene_igc %>%
+            group_by(
+                gene, status,
+                gene_chr, gene_start,
+                gene_end, gene_length, gene_name, gene_id,
+                pLI, exac_pLI
+            ) %>%
+            dplyr::select(-score, -strand, -thickStart, -thickEnd, -color) %>%
+            summarise(
+                N_IGC = n(),
+                support = sum(name),
+                average_support = support / N_IGC,
+                average_length = mean(reference_end - reference_start),
+            ) %>%
+            ungroup() %>%
+            pivot_wider(
+                names_from = status,
+                values_from = c(N_IGC, support, average_length, average_support),
+                values_fill = 0
+            ) %>%
+            mutate(rank = support_Donor + support_Acceptor) %>%
+            arrange(-rank) %>%
+            dplyr::select(-support_Donor, -support_Acceptor)
+    } else {
+
+    }
+    out_df
+}
+
+igc_genes <- igc_in_genes(gene_bed)
+head(igc_genes)
+colnames(igc_genes)
+igc_exons <- igc_in_genes(gene_bed6)
+tables <- list(igc_genes, igc_exons)
+
+wb <- createWorkbook()
+## create and add a style to the column headers
+headerStyle <- createStyle(
+    fontSize = 11,
+    fontColour = "#000000",
+    borderColour = "#000000",
+    halign = "center",
+    border = "TopBottom",
+)
+## style for body
+bodyStyle <- createStyle(borderStyle = "none", fontSize = 9, numFmt = "#,##0.00")
+for (i in seq(length(tables))) {
+    cur_tbl <- tables[[i]]
+    rows <- seq(nrow(cur_tbl))
+    cols <- seq(ncol(cur_tbl))
+    print(i)
+    print(cols)
+
+    addWorksheet(
+        wb = wb, sheetName = i,
+        gridLines = FALSE
+    )
+
+    addStyle(wb, i, headerStyle, gridExpand = TRUE, cols = cols, rows = 1)
+    addStyle(wb, i, bodyStyle, gridExpand = TRUE, cols = cols, rows = 2:(nrow(cur_tbl) + 1))
+    freezePane(wb, sheet = i, firstCol = TRUE, firstRow = TRUE)
+    setColWidths(wb, i, cols = cols, widths = "auto")
+    writeData(wb = wb, sheet = i, x = cur_tbl)
+}
+
+saveWorkbook(wb, "tables/Gene_IGC.xlsx", overwrite = TRUE)
+
+length(unique(igc_exons$gene_name))
+```
+
+
+```{r}
+add_repel_pli <- function(p, pli = 0.5, nudge_x = -0.25, nudge_y = 100, min_accpt = 0, min_donor = 0, y = 0) {
+    p + geom_text_repel(
+        data = pli_plot.df %>%
+            filter(
+                pLI >= pli,
+                N_IGC_Acceptor >= min_accpt,
+                N_IGC_Donor >= min_donor
+            ),
+        aes_string(y = y),
+        max.overlaps = 100,
+        segment.alpha = 0.2,
+        size = 3,
+        force = 5,
+        force_pull = 0.25,
+        nudge_y = nudge_y,
+        nudge_x = nudge_x
+    ) +
+        xlab("probability of being loss-of-function intolerant (pLI)") +
+        theme_minimal_grid()
+}
+
+pli_plot.df <- igc_exons %>%
+    group_by(gene_name, gene_id, pLI, exac_pLI) %>%
+    replace(is.na(.), -0.1) %>%
+    summarise(
+        average_length_Donor = mean(average_length_Donor),
+        average_length_Acceptor = mean(average_length_Acceptor),
+        average_support_Donor = mean(average_support_Donor),
+        average_support_Acceptor = mean(average_support_Acceptor),
+        N_IGC_Donor = sum(N_IGC_Donor),
+        N_IGC_Acceptor = sum(N_IGC_Acceptor)
+    ) %>%
+    data.table()
+
+pli_plot.df[pLI >= 0.5]
+
+pli_plot_a <- (pli_plot.df %>%
+    ggplot(aes(x = pLI, label = gene_name)) +
+    geom_histogram(aes(x = pLI), bins = 50) +
+    ylab("Count of genes with IGC over exons")) %>%
+    add_repel_pli()
+
+library(ggpubr)
+pli_plot_b <- (pli_plot.df %>%
+    filter(pLI >= 0.0) %>%
+    ggplot(aes(x = pLI, y = N_IGC_Acceptor, label = gene_name)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = F, alpha = 0.2, size = 1)
+) %>%
+    add_repel_pli(pli = 0.75, min_accpt = 50, y = "N_IGC_Acceptor")
+
+pli_plot_c <- (pli_plot.df %>%
+    filter(pLI >= 0.0) %>%
+    ggplot(aes(x = pLI, y = N_IGC_Donor, label = gene_name)) +
+    geom_point() +
+    stat_cor(method = "pearson") +
+    geom_smooth(method = "lm", se = F, alpha = 0.2, size = 1)
+) %>%
+    add_repel_pli(pli = 0.75, min_donor = 50, y = "N_IGC_Donor")
+
+
+pli_plot <- cowplot::plot_grid(
+    pli_plot_a,
+    cowplot::plot_grid(pli_plot_b, pli_plot_c),
+    ncol = 1
+)
+ggsave("figures/igc_pli.pdf", plot = pli_plot, height = 8, width = 12)
+``` 
+
+
+
+```{r}
+
+# paf <- fread("/net/eichler/vol26/projects/assembly_breaks/nobackups/asm-to-reference-alignment/tmp.all.paf")
+
+paf$len <- (paf$V9 - paf$V8) / 1e6
+paf <- paf[order(paf$len), ]
+paf$cum.pct <- with(paf, cumsum(len) / sum(len))
+len <-
+    # ggplot(paf, aes(x = len, weight = len)) + geom_histogram(bins = 100) +
+    ggplot(paf, aes(x = len, cum.pct)) +
+    # geom_line(aes(y = 1 - ..y..), stat = "ecdf") +
+    geom_line() +
+    scale_x_continuous(trans = "log10", label = comma) +
+    annotation_logticks(side = "b") +
+    coord_cartesian(xlim = c(0.01, NA)) +
+    theme_minimal_grid()
+ggsave("tmp.pdf", plot = len, height = 20, width = 20)
+
+sum(paf[len > 1]$len) / sum(paf$len)
+sum(paf[len > 0.5]$len) / sum(paf$len)
+sum(paf[len > .25]$len) / sum(paf$len)
+sum(paf[len > .125]$len) / sum(paf$len)
+```
+
+
+
+```{r}
+n_samples <- length(unique(igc$sample))
+igc_cov <- fread("data/windowed_acceptor_donor_counts.bed") %>%
+    group_by(`#chr`, `start`, `end`) %>%
+    pivot_longer(cols = c("acceptor", "donor")) %>%
+    filter(value > 0) %>%
+    group_by(name) %>%
+    # mutate(z_score_group = (value - mean(value)) / sd(value)) %>%
+    mutate(per = ecdf(value)(value)) %>%
+    data.table()
+igc_cov
+
+
+xx <- igc_cov %>%
+    mutate(value = case_when(value > n_samples ~ n_samples, TRUE ~ value)) %>%
+    ggplot(aes(fill = name, x = value)) +
+    geom_bar(position = "dodge", alpha = 0.8) +
+    # facet_col(~name) +
+    ylab("Count of genomic windows (1 kbp)") +
+    xlab("Number of donors or acceptors") +
+    geom_text_repel(
+        data = igc_cov %>% sample_n(1),
+        aes(x = n_samples, y = 0, label = glue("{n_samples}+")),
+        nudge_y = 1e3
+    ) +
+    # scale_y_continuous(trans="log10")+
+    scale_fill_manual("", values = c(acceptor = "darkblue", donor = "darkorange")) +
+    theme_minimal_grid() +
+    theme(legend.position = "top")
+ggsave("figures/igc_coverage_hist.pdf", plot = xx)
+
+quantile(igc_cov$value, probs = seq(0, 1, 0.25))
+igc_cov %>%
+    group_by(name) %>%
+    summarise(x = list(quantile(value, probs = c(0.95, .997)))) %>%
+    data.table()
+```
+
+
+
+
+
+
+
+
+## Donor vs acceptor across the genome, round 2
+```{r}
+igc_a.sd <- igc_sd[, c(acceptor_columns, "sample"), with = FALSE] %>%
+    filter(`#reference_name.liftover` != "chrY") %>%
+    data.table()
+igc_d.sd <- igc_sd[, c(donor_columns, "sample"), with = FALSE] %>%
+    filter(`reference_name` != "chrY") %>%
+    data.table()
+igc_cov_a.sd <- convert_to_sd_coords(igc_cov[name == "acceptor" & per >= 0.95], c(1, 2, 3), converter)
+igc_cov_d.sd <- convert_to_sd_coords(igc_cov[name == "donor" & per >= 0.95], c(1, 2, 3), converter)
+
+pt <- 3
+pp <- getDefaultPlotParams(plot.type = pt) # $plot.params
+pp$ideogramlateralmargin <- 0.01
+
+g_size <- sum(converter$genome$end) / 1e6
+count <- 0
+n_bins <- 3
+ii <- 0
+sets <- list(c())
+for (i in nrow(converter$genome)) {
+    chr <- converter$genome$seqnames[i]
+    end <- converter$genome$end[i]
+    count <- count + end
+    print(end)
+    sets[[ii]] <- c(sets[[ii]], chr)
+    if (count > g_size / 3) {
+        count <- 0
+        ii <- ii + 1
+    }
+}
+sets
+set1 <- NOYM[1:8]
+set2 <- NOYM[8:length(NOYM)]
+
+# pp$ideogramheight=100
+pdf(glue("{odir}/ideo_gc_density.pdf"), height = 8, width = 30)
+for (chrs in list(set1, set2)) {
+    kp <- plotKaryotype(
+        cytobands = converter$cyto,
+        genome = converter$genome,
+        # chromosomes = "chr1",
+        chromosomes = chrs,
+        plot.params = pp, plot.type = pt,
+    )
+
+    window <- 2e4
+    d_bot <- 0.1
+    kpPlotDensity(kp,
+        data = toGRanges(igc_a.sd),
+        r0 = d_bot, r1 = 1.0,
+        data.panel = 1, window.size = window, col = acceptor_color
+    ) # , border=acceptor_color)
+    kpPlotDensity(kp,
+        data = toGRanges(igc_d.sd),
+        r0 = d_bot, r1 = 1.0,
+        data.panel = 2, window.size = window, col = donor_color
+    ) # , border=donor_color)
+
+    kpPlotRegions(kp,
+        data = toGRanges(GENES_V1.1.sd),
+        r0 = -pp$data1inmargin / pp$data1height,
+        r1 = 0, avoid.overlapping = FALSE,
+        data.panel = 2,
+        border = NA
+    )
+
+    kpPlotRegions(kp,
+        data = (toGRanges(morb_sd[seqnames != "chrY#"])), #-width(toGRanges(morb_sd))/25,
+        r1 = 0, r0 = -pp$data2inmargin / pp$data2height,
+        data.panel = 1,
+        col = transparent(morb_sd$color, 0.0), avoid.overlapping = TRUE, border = NA
+    )
+
+    kpPlotRegions(kp,
+        data = GenomicRanges::reduce(toGRanges(igc_cov_a.sd)),
+        data.panel = 1,
+        # r0 = 0, r1 = d_bot,
+        r0 = 0.9, r1 = 1.0,
+        col = NEWCOLOR, border = NEWCOLOR
+    )
+    kpPlotRegions(kp,
+        data = GenomicRanges::reduce(toGRanges(igc_cov_d.sd)),
+        data.panel = 2,
+        #   r0 = 0, r1 = d_bot,
+        r0 = 0.9, r1 = 1.0,
+        col = NEWCOLOR, border = NEWCOLOR
+    )
+
+    # kpAddCytobandLabels(kp, cex = .75)
+    # kpPlotMarkers(kp, data=toGRanges(converter$cyto), labels=converter$cyto$name, text.orientation = "horizontal",
+    #              r1=0.5, cex=0.8,adjust.label.position = FALSE)
+}
+dev.off()
+dev.off()
+dev.off()
+dev.off()
+```
+
+
+
+
+
+
+
+```{r NEW IGC PLOT FOR GENES}
+# @william, add genes here
+igc_fig_genes <- c(
+    "F8", "C4B", "HERC",
+    "OPN1LW", "HBG1", "TCAF",
+    "LPA", "CROCC", "NEB",
+    "THOC3", "RPBD1", "RPUSD1", "GOLGA2",
+    "RHD", "CYP2D6", "SRGAP2", "ARHGAP11",
+    "TBC1D3[^[:digit:],P]", "NPIPA", "NPIPB",
+    "HYDIN2"
+)
+igc_gene_pat <- paste0(paste0("(", paste(igc_fig_genes, collapse = "|")), ")")
+igc_gene_pat
+allowed_gene_types <- c(
+    "protein_coding", "pseudogene",
+    "processed_pseudogene", "processed_transcript"
+)
+pc_gene_bed <- gene_bed %>%
+    filter(
+        type %in% allowed_gene_types
+    ) %>%
+    data.table()
+
+
+igc_with_genes <- merged_df %>%
+    add_gene_list_col(
+        genelist = pc_gene_bed,
+        gene_cols = c(2, 3, 4),
+        cols = acceptor_columns, outcol = "acceptor_genes",
+        gene_name_col = "gene_name"
+    ) %>%
+    add_gene_list_col(
+        genelist = pc_gene_bed,
+        gene_cols = c(2, 3, 4),
+        cols = donor_columns, outcol = "donor_genes",
+        gene_name_col = "gene_name"
+    )
+
+igc_genes_of_interest <- merged_df %>%
+    filter(
+        grepl(igc_gene_pat, donor_gene_names) | grepl(igc_gene_pat, acceptor_gene_names)
+    ) %>%
+    mutate(gene_of_interest = str_extract(acceptor_gene_names, igc_gene_pat)) %>%
+    mutate(gene_of_interest = case_when(
+        is.na(gene_of_interest) ~ str_extract(donor_gene_names, igc_gene_pat),
+        TRUE ~ gene_of_interest
+    )) %>%
+    mutate(gene_of_interest = gsub(";NA|NA;", "", gene_of_interest)) %>%
+    mutate(gene_of_interest = gsub("TBC1D3.*", "TBC1D3", gene_of_interest))
+igc_genes_of_interest
+
+igc_genes_of_interest$gene_of_interest %>% unique()
+igc_genes_of_interest$gene_of_interest %>%
+    unique() %>%
+    length()
+length(igc_fig_genes)
+```
+
+
+```{r}
+hap_cov <- fread("data/haplotype_coverage_bed_graph.bed")
+colnames(hap_cov) <- c("chr", "start", "end", "coverage")
+
+library(patchwork)
+plot_layout <- "
+AAAAAB
+CCCCC#
+"
+
+regions_of_interest <- igc_genes_of_interest %>%
+    dplyr::filter(reference_name == `#reference_name.liftover`) %>%
+    group_by(reference_name, gene_of_interest) %>%
+    summarise(
+        chr = unique(reference_name),
+        start = min(min(reference_start), min(reference_start.liftover)) - 1e4,
+        end = max(max(reference_end), max(reference_end.liftover)) + 1e4,
+        Mbp = (end - start) / 1e6,
+        n = n()
+    ) %>%
+    dplyr::filter(!(gene_of_interest == "F8" & chr != "chrX")) %>%
+    # filter(gene_of_interest == "SRGAP2C") %>%
+    # filter(gene_of_interest == "OPN1LW") %>%
+    data.table()
+regions_of_interest
+dim(regions_of_interest)
+
+
+i <- 1
+dt <- igc_genes_of_interest
+min_snv <- 0
+min_sample <- 0
+n_events <- 1e6
+for (i in 1:nrow(regions_of_interest)) {
+    my_chrm <- regions_of_interest$chr[[i]]
+    chrm <- regions_of_interest$chr[[i]]
+    my_start <- regions_of_interest$start[[i]] - 5e3
+    my_end <- regions_of_interest$end[[i]] + 5e3
+    my_len <- my_end - my_start
+    gene_of_interest <- regions_of_interest$gene_of_interest[[i]]
+    my_gene_of_interest <- regions_of_interest$gene_of_interest[[i]]
+    condition_name <- (
+        dt$reference_name == dt$`#reference_name.liftover`
+    ) & (dt$reference_name == my_chrm)
+    condition1 <- condition_name &
+        (dt$reference_start.liftover < my_end & dt$reference_end.liftover > my_start)
+    condition2 <- condition_name &
+        (dt$reference_start <= my_end & dt$reference_end >= my_start)
+
+
+    cov_regions <- queryHits(findOverlaps(
+        toGRanges(hap_cov),
+        toGRanges(data.frame(chr = my_chrm, start = my_start, end = my_end))
+    ))
+    cur_cov <- hap_cov[cov_regions]
+
+    cur_igc <-
+        dt[condition1 & condition2] %>%
+        filter(
+            name >= min_snv,
+            n >= min_sample,
+        ) %>%
+        as.tibble(.name_repair = "unique") %>%
+        mutate(
+            st1 = reference_start.liftover,
+            st2 = reference_start,
+            mid1 = (st1 + st2) / 2,
+            en1 = reference_end.liftover,
+            en2 = reference_end,
+            mid2 = (en1 + en2) / 2,
+            group = row_number()
+        ) %>%
+        arrange(st1 - en1, -n, -name) %>%
+        mutate(y = disjointBins(IRanges(st1, en1)) / 10) %>%
+        data.table()
+
+    # my_start <- min(cur_igc$st1, cur_igc$st2)
+    # my_end <- max(cur_igc$en2, cur_igc$en2)
+
+    print(gene_of_interest)
+    print(dim(cur_igc))
+    cur_igc
+
+    if (nrow(cur_igc) == 0) {
+        next
+    }
+
+    head(gene_bed6$gene_id) %in% igc_genes$gene_id
+    gene_ids_with_igc <- unique(unlist(
+        strsplit(c(cur_igc$acceptor_gene_ids, cur_igc$donor_gene_ids), ";")
+    ))
+
+    df_genes <- gene_bed6 %>%
+        filter(
+            type %in% allowed_gene_types,
+            chr == chrm,
+            (start <= my_end & end >= my_start)
+        ) %>%
+        filter(!grepl("\\.", gene)) %>%
+        filter(!grepl("^LINC", gene)) %>%
+        # mutate(gene = sub("-\\d+", "", gene)) %>%
+        group_by(gene_name, gene_id) %>%
+        summarise(start = min(start) - 1e3, end = max(end) + 1e3) %>%
+        mutate(gene = gene_name) %>%
+        ungroup() %>%
+        mutate(
+            y = disjointBins(IRanges(start, end) + length / 5e3),
+            color = (gene_id %in% gene_ids_with_igc) # grepl(gene_of_interest, gene)
+        ) %>%
+        arrange(color) %>%
+        data.table()
+    df_genes
+
+    cur_morb <- morb %>%
+        filter(
+            seqnames == chrm,
+            start <= my_end & end >= my_start
+        ) %>%
+        mutate(
+            y = -disjointBins(IRanges(start, end)) / 3
+        )
+
+    p_genes <- ggplot(
+        df_genes,
+        aes(x = start, xend = end, y = y, yend = y)
+    ) +
+        geom_segment(aes(color = color),
+            arrow = arrow(length = unit(0.1, "cm")),
+            size = 0.75
+        ) +
+        geom_text_repel(
+            data = df_genes %>% filter(color == TRUE),
+            aes(label = gene, color = color),
+            direction = "y",
+            segment.size = .2,
+            nudge_y = 1
+        ) +
+        geom_segment(
+            data = cur_morb,
+            aes(x = start, xend = end, y = y, yend = y),
+            color = cur_morb$color,
+        ) +
+        scale_color_manual(values = c(`TRUE` = NEWCOLOR, `FALSE` = OLDCOLOR)) +
+        coord_cartesian(
+            clip = "off",
+            xlim = c(my_start, my_end)
+        ) +
+        ylab("") +
+        xlab("") +
+        theme_minimal_vgrid() +
+        theme(
+            legend.position = "none",
+            axis.ticks.x = element_blank(),
+            axis.text.x = element_blank(),
+            axis.text.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.line.y = element_blank(),
+            plot.margin = margin(0, 0, .2, 0, "cm")
+        )
+
+    plot_cov <- ggplot(
+        data = cur_cov,
+        aes(
+            x = pmax(start, my_start), xend = pmin(end, my_end),
+            y = coverage, yend = coverage
+        )
+    ) +
+        geom_segment() +
+        coord_cartesian(
+            clip = "off",
+            # ylim = c(0, NA),
+            xlim = c(my_start, my_end)
+        ) +
+        ylab("1:1 alignment\ncoverage") +
+        xlab("") +
+        theme_minimal_grid() +
+        theme(
+            legend.position = "none",
+            axis.ticks.x = element_blank(),
+            axis.text.x = element_blank(),
+            plot.margin = margin(0, 0, 0, 0, "cm")
+        )
+    # ggsave("tmp.pdf")
+
+    cur_gc <- cur_igc %>%
+        # arrange(-(st1 + en1) / 2) %>%
+        arrange(n, -(st1 + en1) / 2) %>%
+        mutate(id = paste(rev(row_number()), sample, sep = ": ")) %>%
+        mutate(
+            id = factor(id, levels = unique(id)),
+            sample = factor(sample, levels = unique(sample))
+        ) %>%
+        mutate(arrow_st = case_when(st1 < st2 ~ st2, TRUE ~ en2)) %>%
+        mutate(arrow_en = case_when(st1 < st2 ~ en1, TRUE ~ st1)) %>%
+        data.table()
+    cur_gc
+    cur_igc
+    curve <- 0.03
+    p_gc <- cur_gc %>%
+        ggplot(aes(y = id, yend = id)) +
+        geom_segment(
+            aes(x = st1, xend = en1, size = name, color = "Acceptor"),
+            size = 3,
+            alpha = 0.9, lineend = "round"
+        ) +
+        geom_segment(
+            aes(
+                x = st2,
+                xend = en2,
+                size = name,
+                color = "Donor"
+            ),
+            size = 3,
+            alpha = 0.9, lineend = "round"
+        ) +
+        geom_curve(aes(x = arrow_st, xend = arrow_en),
+            arrow = arrow(angle = 15, length = unit(0.15, "inches")),
+            curvature = curve, size = 0.25, color = NEWCOLOR
+        ) +
+        geom_text(aes(
+            x = pmin((st1 + st1) / 2, (st2 + st2) / 2),
+            label = round((en1 - st1) / 1e3, 1),
+            color = "Length (kbp)",
+        ),
+        size = 3, nudge_y = 0, hjust = 1.5
+        ) +
+        geom_text(aes(
+            x = pmax((en1 + en1) / 2, (en2 + en2) / 2),
+            label = comma(name, accuracy = 0.1),
+            color = "# SNVs",
+        ),
+        size = 3, nudge_y = 0, hjust = -0.5
+        ) +
+        scale_x_continuous("Genomic position",
+            label = comma,
+        ) +
+        ylab("") +
+        scale_color_manual("IGC",
+            values = c(
+                Acceptor = "darkblue",
+                Donor = "darkorange",
+                `Length (kbp)` = "#4b8b4b",
+                `# SNVs` = "#00746a"
+            )
+        ) +
+        scale_size_binned("# of supporting SNVs",
+            range = c(0.1, 5),
+            breaks = round(10**seq(0, 3, 0.3) / 10) * 10,
+            nice.breaks = T,
+        ) +
+        guides(
+            size = guide_legend(
+                override.aes = list(color = "darkblue"),
+                nrow = 2
+            ),
+            color = guide_legend(nrow = 1)
+        ) +
+        coord_cartesian(
+            clip = "off",
+            xlim = c(my_start, my_end)
+        ) +
+        # ggtitle(
+        #   glue(
+        #      "{n_events} largest IGC events in {min_sample} or more samples with at least {min_snv} SNVs"
+        # ),
+        # subtitle = glue(
+        #   "{inv[[1]]}:{comma(inv[[2]])}-{comma(inv[[3]])}"
+        # )
+        # ) +
+        theme_minimal_grid() +
+        theme(
+            strip.background = element_blank(),
+            strip.text.x = element_blank(),
+            panel.spacing.x = unit(0, "lines"),
+            panel.spacing.y = unit(0, "lines"),
+            legend.position = "top",
+            legend.key.size = unit(1, "cm"),
+            axis.text.y = element_text(size = 8),
+            # plot.margin = margin(0, 0, 0, 0, unit = "pt")
+        ) +
+        ggtitle(glue("IGC in {gene_of_interest} on {chrm}"))
+
+    p_hist <- cur_gc %>%
+        ggplot(aes(y = id, x = n)) +
+        geom_bar(stat = "identity") +
+        theme_minimal_vgrid() +
+        theme(
+            axis.text.y = element_blank(),
+            axis.ticks.y = element_blank()
+        ) +
+        ylab("") +
+        xlab("# of haplotypes\nwith IGC event") +
+        theme(plot.margin = margin(0, 0, 0, 0, unit = "pt"))
+
+    nrow_cur_gc <- nrow(cur_gc)
+
+    print("saving")
+    scale <- 1
+    fig_height <- (max(11, nrow_cur_gc / 5 + 1)) * scale
+
+    fig_patch <- p_gc + p_hist + p_genes + plot_spacer() + plot_cov +
+        plot_layout(
+            widths = c(5, 1),
+            heights = c(fig_height - 2, 1, 1),
+            nrow = 3, ncol = 2
+        )
+    ggsave(glue("{odir}/genes/{gene_of_interest}_{chrm}_min_snv_{min_snv}_gc_fig.pdf"),
+        limitsize = FALSE,
+        # height=12,
+        height = fig_height,
+        width = 16 * scale,
+        plot = fig_patch
+    )
+}
+
+system(glue("pdfunite figures/genes/*min_snv_{min_snv}*.pdf figures/igc_all_genes_booklet_min_snv_{min_snv}.pdf"))
+print("hi")
+```
+
+
+
+```{r, make igc vcf}
+library(splitstackshape)
+my_cur_cols <- c(acceptor_columns, c("sample_hap", "igc_count"))
+
+my_vcf_header <- "##fileformat=VCFv4.2
+##fileDate=20220315
+##source=myIGCprogram
+##contig=<ID=chr1,length=248387328>
+##contig=<ID=chr2,length=242696752>
+##contig=<ID=chr3,length=201105948>
+##contig=<ID=chr4,length=193574945>
+##contig=<ID=chr5,length=182045439>
+##contig=<ID=chr6,length=172126628>
+##contig=<ID=chr7,length=160567428>
+##contig=<ID=chr8,length=146259331>
+##contig=<ID=chr9,length=150617247>
+##contig=<ID=chr10,length=134758134>
+##contig=<ID=chr11,length=135127769>
+##contig=<ID=chr12,length=133324548>
+##contig=<ID=chr13,length=113566686>
+##contig=<ID=chr14,length=101161492>
+##contig=<ID=chr15,length=99753195>
+##contig=<ID=chr16,length=96330374>
+##contig=<ID=chr17,length=84276897>
+##contig=<ID=chr18,length=80542538>
+##contig=<ID=chr19,length=61707364>
+##contig=<ID=chr20,length=66210255>
+##contig=<ID=chr21,length=45090682>
+##contig=<ID=chr22,length=51324926>
+##contig=<ID=chrX,length=154259566>
+##contig=<ID=chrM,length=16569>
+##contig=<ID=chrY,length=57227415>
+##FILTER=<ID=PASS,Description=\"PASSING\">
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">"
+## INFO=<ID=LN,Number=1,Type=Integer,Description=\"Length of IGC\">
+cat(my_vcf_header)
+
+min_snv <- 0
+igc_vcf <- merged_df[name >= min_snv, ..my_cur_cols] %>%
+    as.tibble() %>%
+    dplyr::rename(
+        `#CHROM` = `#reference_name.liftover`,
+        POS = reference_start.liftover,
+        END = reference_end.liftover,
+    ) %>%
+    mutate(
+        POS = round(POS),
+        END = round(END),
+        ID = paste(`#CHROM`, POS, END, "IGC", sep = "-"),
+        POS = round((POS + END) / 2),
+        REF = "A",
+        ALT = "T",
+        QUAL = 30,
+        FILTER = "PASS",
+        INFO = ".", # paste0("LN=", END - POS),
+        FORMAT = "GT"
+    ) %>%
+    dplyr::select(
+        -igc_count,
+        -END,
+    ) %>%
+    select(-sample_hap, sample_hap)
+# CHROM POS ID REF ALT QUAL FILTER INFO FORMAT
+
+
+tmp <- igc_vcf %>%
+    # head(1000) %>%
+    cSplit_e(
+        "sample_hap",
+        sep = ";", mode = "binary",
+        type = "character", fill = ".", drop = TRUE
+    ) %>%
+    rename_with(~ str_remove(., "sample_hap_")) %>%
+    mutate(
+        CHM1_2 = rep(".", nrow(.)),
+        GRCh38_2 = rep(".", nrow(.))
+    ) %>%
+    data.table()
+# %>%unite("NA21309", NA21309_1:NA21309_2, remove = TRUE, sep = "|")
+tmp2 <- tmp
+for (my_sample in unique(IGC$Sample)) {
+    # if (my_sample %in% c("GRCh38", "CHM1")) { next}
+    sm1 <- paste0(my_sample, "_1")
+    sm2 <- paste0(my_sample, "_2")
+    print(my_sample)
+    tmp2 <- tmp2 %>%
+        unite(!!my_sample, c(sm1, sm2), remove = TRUE, sep = "|")
+}
+igc_vcf <- tmp2 %>% arrange(`#CHROM`, POS)
+
+write(my_vcf_header, file = "data/gene-conversion/IGC.vcf")
+fwrite(igc_vcf,
+    file = "data/gene-conversion/IGC.vcf",
+    sep = "\t", quote = FALSE, row.names = FALSE, append = TRUE, col.names = TRUE
+)
+```
+
+```{R}
+system("module load miniconda/4.9.2  bcftools/1.12 && ~mvollger/assembly_breaks/asm-to-reference-alignment/workflow/scripts/add-missing-hom-genotypes.py data/gene-conversion/IGC.vcf /net/eichler/vol26/projects/assembly_breaks/nobackups/asm-to-reference-alignment/human_nhp_vcf_merge/all_hap_coverages.bed | bcftools sort | bgzip -@ 30 > data/gene-conversion/IGC.fixed.gt.vcf.gz")
+system("module load miniconda/4.9.2  bcftools/1.12 && bcftools index data/gene-conversion/IGC.fixed.gt.vcf.gz")
+```
+
+
+```{r}
+min_snv <- 2
+min_count <- 2
+igc_vcf[, c(1, 2, 3, 4)]
+
+igc_recur_genes <- c(
+    "F8",
+    "LPA",
+    "CYP2A6", "CYP3A", "CYP21A2",
+    # "HERC",
+    "OPN1LW",
+    # "HBG1",
+    "TCAF1", "TCAF2C", "TCAF2",
+    # "LPA",
+    # "CROCC",
+    "NEB",
+    # "THOC3",
+    "RPBD1", "RPUSD1",
+    # "GOLGA2",
+    "RHD", "RHCE",
+    "CYP2D6", "CYP2D7", "CYP2D8",
+    "SRGAP2C", "SRGAP2B", "SRGAP2D", "SRGAP2",
+    "NOTCH2NLA", "NOTCH2NLB", "NOTCH2NLC", "NOTCH2NLR", "NOTCH2",
+    "ARHGAP11A", "ARHGAP11B", "ARHGAP11",
+    "C4B"
+)
+igc_recur_pat <- paste0(paste0("(", paste(igc_recur_genes, collapse = "|")), ")")
+
+flank <- 20e3
+colnames(merged_df)
+igc_recur_df <- merged_df %>%
+    filter(grepl(igc_recur_pat, acceptor_exon_names) | grepl("LPA", acceptor_gene_names)) %>%
+    filter(name >= min_snv) %>%
+    filter(igc_count >= min_count) %>%
+    mutate(gene_of_interest = str_extract(acceptor_gene_names, igc_recur_pat)) %>%
+    # mutate(gene_of_interest = case_when(
+    #    is.na(gene_of_interest) ~ str_extract(donor_gene_names, igc_gene_pat),
+    #    TRUE ~ gene_of_interest
+    # )) %>%
+    # select(gene_of_interest) %>%
+    mutate(
+        chrm = `#reference_name.liftover`,
+        st1 = round(reference_start.liftover - flank),
+        en1 = round(reference_start.liftover),
+        st2 = round(reference_end.liftover),
+        en2 = round(reference_end.liftover + flank),
+        ID = paste(chrm, en1, st2, "IGC", sep = "-"),
+        ave_support = name,
+    ) %>%
+    filter(!(gene_of_interest == "F8" & chrm != "chrX")) %>%
+    select(chrm, st1, en1, st2, en2, ID, gene_of_interest, igc_count, ave_support) %>%
+    group_by(gene_of_interest) %>%
+    # slice(which.max(ave_support * igc_count)) %>%
+    slice_max(ave_support * igc_count, n = 2) %>%
+    mutate(flank_size = flank) %>%
+    arrange(chrm, st1) %>%
+    data.table()
+
+stopifnot(
+    sum(igc_vcf$ID %in% igc_recur_df$ID) == nrow(igc_recur_df)
+)
+
+fwrite(igc_recur_df,
+    file = "data/gene-conversion/IGC_recurrance_targets.tbl",
+    sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE
+)
+
+igc_recur_df %>%
+    openxlsx::write.xlsx(
+        file = "tables/IGC-recurance-targets.xlsx",
+    )
+```
+
+
+
+
+
+# add SD counts 
+```{r}
+min_snv <- 10
+igc.gr <- toGRanges(igc[name >= min_snv, ..acceptor_columns])
+igc.gr <- as(coverage(igc.gr), "GRanges")
+igc.gr <- igc.gr[igc.gr$score > 0]
+sd.gr <- c(toGRanges(SEDEF_V1.1)) # ), toGRanges(SEDEF_V1.1_LOWID))
+
+sd_covs <- as(coverage(sd.gr), "GRanges") %>%
+    as.data.table() %>%
+    group_by(score) %>%
+    filter(score > 0) %>%
+    summarise(sd_bp = sum(width)) %>%
+    mutate(sd_cn = score) %>%
+    select(-score) %>%
+    arrange(-sd_bp) %>%
+    data.table()
+
+length(igc.gr)
+length(sd.gr)
+
+sd_cn <- findOverlaps(igc.gr, sd.gr, minoverlap = 500) %>%
+    as.data.table() %>%
+    group_by(queryHits) %>%
+    summarise(sd_cn = n())
+
+sd_cn.df <- as.data.table(igc.gr)
+sd_cn.df$sd_cn <- NA
+sd_cn.df$sd_cn[sd_cn$queryHits] <- sd_cn$sd_cn
+sd_cn.df$igc_count <- sd_cn.df$score
+sd_cn.df <- sd_cn.df %>%
+    merge(sd_covs, by = "sd_cn", all.x = T) %>%
+    mutate(cor_igc_count = igc_count / sd_bp) %>%
+    mutate(weight = width * igc_count / sd_bp) %>%
+    data.table()
+dim(sd_cn.df)
+dim(sd_cn)
+length(igc.gr)
+sum(sd_cn.df[is.na(sd_cn.df$sd_cn)]$width) / 1e6
+sum(sd_cn.df[!is.na(sd_cn.df$sd_cn)]$width) / 1e6
+```
+
+# igc bootstrap regions
+```{r}
+# system("./make_bootstrap_igc.sh 100 > data/bootstrap.igc.tbl.gz")
+igc_boot <- fread("data/bootstrap.igc.tbl.gz")
+
+igc_boot$sd_cn <- countOverlaps(toGRanges(igc_boot), sd.gr)
+igc_boot %>%
+    group_by(bootstrap) %>%
+    mutate(
+        len = en - st,
+        cor = mean(len) * (len * sd_cn) / sum(len)
+    ) %>%
+    summarise(mean(cor), median(cor))
+
+i <- intersect(toGRanges(igc_boot), GenomicRanges::reduce(sd.gr))
+sum(width(i)) / 1e6
+sum(width(toGRanges(igc_boot))) / (10e6)
+```
+
+
+```{r}
+# add observations for each bp
+sd_cn.df.2 <- sd_cn.df[, list(igc_count = rep(igc_count, width), sd_cn = rep(sd_cn, width))]
+dim(sd_cn.df.2) / 1e6
+
+z <- sd_cn.df %>%
+    filter(sd_cn > 0 & sd_bp > 1e5) %>%
+    # sample_n(1e5) %>%
+    # head(10000) %>%
+    # filter(width>100) %>%
+    # mutate(cat = name >= 10) %>%
+    ggplot(aes(x = sd_cn, weight = weight)) +
+    # scale_y_continuous("SD copy-number", trans = "log10") +
+    # scale_x_continuous("IGC count", trans = "log10") +
+    # geom_hex(aes(fill = stat(log10(count))), bins = 40) +
+    geom_bar() +
+    # geom_density2d() +
+    # geom_point(alpha = 0.1, size = 0.1) +
+    # stat_cor(method = "pearson") +
+    # geom_smooth(method = "lm", se = F, alpha = 0.2, size = 1) +
+    scale_fill_viridis_c("count", option = "magma") +
+    # facet_col(~cat, scales = "free") +
+    theme_minimal_grid()
+ggsave("tmp.pdf")
+
+t <- sd_covs %>%
+    ggplot(aes(x = sd_cn, weight = sd_bp)) +
+    scale_y_continuous(trans = "log10", label = comma) +
+    # scale_x_continuous(trans = "log10") +
+    geom_bar()
+
+ggsave("tmp.pdf")
+```
+
+
+
+# phil samples names
+```{r}
+
+high_pli_gene_for_phil <- pli_plot.df %>%
+    filter(pLI >= 0.5) %>%
+    merge(gene_bed, by = c("gene_id", "gene_name")) %>%
+    group_by(gene_id, gene_name) %>%
+    select(chr, start, end) %>%
+    summarise(start = min(start), end = max(end))
+validate_igc <- regions_of_interest[Mbp < 10, c("chr", "start", "end")] %>%
+    bind_rows(igc_recur_df[, c("chrm", "st1", "en2")] %>%
+        rename(chr = chrm, start = st1, end = en2), .id = "id")
+validate_igc
+
+colnames(gene_igc)
+```

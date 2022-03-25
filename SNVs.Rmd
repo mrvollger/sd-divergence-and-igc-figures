@@ -1,0 +1,340 @@
+---
+title: "SNV"
+author: "Mitchell R. Vollger"
+date: "1/18/2022"
+output: html_document
+---
+
+```{r load-data, include=FALSE}
+source("load-data.R")
+library(ggbeeswarm)
+```
+
+```{r}
+anno_small <- grouped_hprc_snvs %>%
+    group_by(color, AFR, anno_SD) %>%
+    summarise(
+        mean = mean(dist_to_next_snv),
+        # median = median(dist_to_next_snv)
+    ) %>%
+    pivot_longer(cols = c("mean")) # , "median"))
+anno_small
+
+p <- grouped_hprc_snvs %>%
+    # sample_n(1e6) %>%
+    ggplot(aes(x = dist_to_next_snv, fill = color)) +
+    geom_density(adjust = 1 / 4, alpha = 0.5) +
+    scale_color_manual("", values = c(`SD` = NEWCOLOR, `Unique` = OLDCOLOR)) +
+    geom_vline(data = anno_small, aes(color = color, xintercept = value), linetype = "dashed") +
+    geom_label_repel(
+        data = anno_small,
+        aes(
+            label = paste(name, comma(value), sep = " = "),
+            x = value, y = 0.8 - anno_SD / 4, color = color
+        ),
+        direction = "y",
+        hjust = -0.1,
+        fill = transparent("white", 0.1),
+        size = 5
+    ) +
+    scale_fill_manual("", values = c(`SD` = NEWCOLOR, `Unique` = OLDCOLOR)) +
+    annotation_logticks(side = "b") +
+    scale_x_continuous(trans = "log10", labels = comma, limits = c(0.9, 5e4)) +
+    facet_col(~AFR) +
+    # theme_cowplot()+
+    theme_minimal_hgrid() +
+    xlab("Distance to next closest SNV") +
+    ylab("Density") +
+    theme(legend.position = "none")
+ggsave(glue("{odir}/inter_snv_dist.pdf"), width = 7, height = 8, plot = p)
+```
+
+```{r}
+close_snv <- grouped_hprc_snvs %>%
+    filter(dist_to_next_snv <= 10) %>%
+    # sample_n(3e6) %>%
+    mutate(end = POS + 1) %>%
+    dplyr::select(`#CHROM`, POS, end, color) %>%
+    data.table()
+pdf(
+    "figures/close_snv_subset.pdf",
+    height = 3, width = 9
+)
+chrs <- NOYM
+chrs <- c("chr1", "chr6", "chr8", "chrX")
+kp <- plotKaryotype(plot.type = 2, cytobands = CYTOFULL, genome = GENOME, chromosomes = chrs)
+ymax <- 2e4
+kpPlotDensity(kp,
+    data = toGRanges(close_snv[color == "SD"]),
+    data.panel = 1, window.size = 1e6, col = transparent(NEWCOLOR, 0.25),
+    ymax = ymax
+)
+kpPlotDensity(kp,
+    data = toGRanges(close_snv[color != "SD"]),
+    data.panel = 2, window.size = 1e6, col = transparent(OLDCOLOR, 0.25),
+    ymax = ymax
+)
+dev.off()
+```
+
+
+
+```{r}
+library(ggbeeswarm)
+f <- "data/sd-divergence-results/annotation/annotation_sizes.tbl"
+anno_sizes <- fread(f, col.names = c("Sample", "Region", "bp")) %>%
+    filter(Region == "SD_size" | Region == "Unique_size") %>%
+    separate(Sample, c("Sample", "Hap"), sep = "_") %>%
+    separate(Region, c("Region", "z"), sep = "_") %>%
+    mutate(Mbp = as.numeric(bp) / 1e6) %>%
+    merge(pop, by.x = "Sample", by.y = "SampleID")
+
+anno_sizes %>%
+    group_by(Region) %>%
+    summarise(mean = mean(bp), median = median(bp))
+
+anno_sizes.p <- anno_sizes %>%
+    ggplot(aes(
+        y = Mbp, x = Superpopulation,
+        # color = Superpopulation,
+        fill = Superpopulation
+    )) +
+    ylab("Mbp of sequence within synteny blocks >1 Mbp") +
+    geom_violin(alpha = 0.8) +
+    geom_quasirandom() +
+    scale_y_continuous(label = comma) +
+    facet_col(~Region, scales = "free_y") +
+    scale_color_brewer(palette = "Set1") +
+    theme_minimal_grid() +
+    theme(legend.position = "none")
+ggsave(file = "figures/annotation_sizes.pdf", height = 6, width = 8)
+```
+
+
+
+```{r}
+
+fakeadd <- 0.005
+plot.df <- snv_windows %>%
+    # sample_n(50e6) %>%
+    filter(region %in% c("Unique", "SD", "chrX")) %>%
+    dplyr::select(!starts_with("anno_")) %>%
+    dplyr::select(!starts_with("dist_")) %>%
+    group_by(`#chr`, region, hap) %>%
+    mutate(grp = as.integer(gl(n(), 10, n()))) %>%
+    group_by(`#chr`, region, hap, grp) %>%
+    summarise(per_div = mean(per_div)) %>%
+    data.table()
+
+plot.df[per_div == 0]$per_div <- fakeadd
+pal <- COLORS[unique(plot.df$region)]
+plot.df
+window <- median(plot.df$end - plot.df$start)
+window
+#
+# make plot
+#
+
+p <- ggplot() +
+    stat_ecdf(
+        data = plot.df,
+        aes(per_div, color = region),
+        size = 1.5, alpha = 0.75
+    ) +
+    scale_x_log10(
+        limits = c(fakeadd, 20),
+        breaks = c(fakeadd, 0.01, 0.1, 1, 10),
+        labels = c("0.00", "0.01", "0.10", "1.00", "10.0")
+    ) +
+    annotation_logticks(sides = "b") +
+    scale_fill_manual(values = pal) +
+    scale_color_manual(values = pal) +
+    xlab(glue("% divergence of 10 kbp windows")) +
+    ylab("Cumulative fraction of windows") +
+    # ggtitle("Divergence of 10 kbp windows aligned to T2T-CHM13 v1.1",
+    #    subtitle = "(Minimum 1 Mbp alignment, SD windows are at least 95% SD)"
+    # ) +
+    theme_cowplot() +
+    theme(legend.position = "top", legend.title = element_blank()) +
+    guides(fill = guide_legend(ncol = length(pal) / 2))
+ggsave("figures/snv_ecdf.pdf", width = 8, height = 6, plot = p)
+```
+
+```{r ecdf all hap}
+#
+# all haplotypes
+#
+plot.df2 <- plot.df %>%
+    filter(region %in% c("SD", "Unique")) %>%
+    data.table()
+
+p2 <- p +
+    stat_ecdf(
+        data = plot.df2,
+        aes(per_div, group = paste0(hap, region), color = region),
+        alpha = 0.5,
+        size = 0.1,
+        linetype = "dashed"
+    )
+ggsave("figures/snv_ecdf_per_hap.pdf", width = 8, height = 5, plot = p2)
+```
+
+
+```{r, snv per 10 kbp violin}
+infile <- "data/sd-divergence-results/tables/snv_per_kbp.tbl"
+
+df <- fread(infile) %>%
+    filter(hap != "CHM1_2") %>%
+    filter(hap != "GRCh38_2") %>%
+    mutate(Sample = gsub("_(1|2)", "", hap)) %>%
+    merge(pop, by.x = "Sample", by.y = "SampleID", all.x = T) %>%
+    mutate(Superpopulation = ifelse(is.na(Superpopulation), "EUR", as.character(Superpopulation)))
+
+unique(df[Superpopulation == "EUR"]$Sample)
+
+#
+# make calculations minus IGC
+#
+if ("IGC" %in% df$region) {
+    igc <- df[region == "IGC", ]
+    sd <- copy(df[region == "SD", ])
+    n_snvs <- sd$`# SNVs` - igc$`# SNVs`
+    n_mbp <- sd$Mbp - igc$Mbp
+    n_per_10_kbp <- 1e4 * n_snvs / (n_mbp * 1e6)
+    sd$region <- "SD-IGC"
+    sd$`# SNVs` <- n_snvs
+    sd$`Mbp` <- n_mbp
+    sd$`# SNVs per 10 kbp` <- n_per_10_kbp
+    df <- rbind(df, sd)
+}
+if ("Acrocentric" %in% df$region) {
+    acro <- df[region == "Acrocentric", ]
+    sd <- copy(df[region == "SD", ])
+    n_snvs <- sd$`# SNVs` - acro$`# SNVs`
+    n_mbp <- sd$Mbp - acro$Mbp
+    n_per_10_kbp <- 1e4 * n_snvs / (n_mbp * 1e6)
+    sd$region <- "SD-Acrocentric"
+    sd$`# SNVs` <- n_snvs
+    sd$`Mbp` <- n_mbp
+    sd$`# SNVs per 10 kbp` <- n_per_10_kbp
+    df <- rbind(df, sd)
+}
+mean(df[region == "SD"]$`# SNVs per 10 kbp`)
+mean(df[region == "Unique"]$`# SNVs per 10 kbp`)
+(mean(df[region == "SD"]$`# SNVs per 10 kbp`) / mean(df[region == "Unique"]$`# SNVs per 10 kbp`))
+
+df$facet_row <- "SD"
+df[region != "Unique"]$facet_row <- df[region != "Unique"]$region
+
+myCOLORS <- c(SD = NEWCOLOR, Unique = OLDCOLOR)
+
+new <- sort(unique(df$region[!(df$region %in% names(myCOLORS))]))
+new_cols <- rep("gray", length(new)) # brewer.pal(length(new), "RdYlBu")
+names(new_cols) <- new
+pcolors <- c(myCOLORS, new_cols)
+pcolors
+df$facet_row <- factor(df$facet_row, levels = names(pcolors))
+
+outfile <- "figures/per_10_kbp_violins/{i}.pdf"
+for (i in unique(df$facet_row)) {
+    mbp <- round(df[df$region == i, "Mbp"], 2)
+    gbp <- round(df[df$region == "Unique", "Mbp"] / 1000, 2)
+    sdmbp <- round(df[df$region == "SD", "Mbp"], 2)
+    title <- glue("Mbp of {i} considered {min(mbp)} - {max(mbp)} \n")
+    subtitle <- glue("Mbp of SD considered {min(sdmbp)} - {max(sdmbp)}\n")
+    subsub <- glue("Gbp of unique considered {min(gbp)} - {max(gbp)}")
+    print(title)
+    print(i)
+    title <- paste(title, subtitle, subsub, sep = "\n")
+
+    pdf(glue(outfile), height = 5, width = 9)
+
+    tdf <- df %>%
+        filter(facet_row == i | region == "Unique" | region == "SD") %>%
+        mutate(region = factor(region, levels = unique(c(i, "SD", "Unique"))))
+
+    sumdf <- tdf %>%
+        mutate(y = 0.9 * min(`# SNVs per 10 kbp`)) %>%
+        group_by(region, Superpopulation, y) %>%
+        summarize(
+            label = round(median(`# SNVs per 10 kbp`), 1)
+        )
+
+    p <- tdf %>%
+        ggplot(
+            aes(
+                x = region,
+                y = `# SNVs per 10 kbp`,
+                color = region,
+                fill = region
+            )
+        ) +
+        geom_text(data = sumdf, aes(label = label, y = y)) +
+        geom_text_repel(
+            data = tdf %>% filter(Sample == "CHM1xx"),
+            aes(
+                label = Sample,
+                x = region,
+                y = `# SNVs per 10 kbp`,
+            ),
+            color = "black",
+            direction = "x",
+            nudge_x = -1,
+            arrow = arrow(length = unit(0.015, "npc")),
+        ) +
+        geom_violin(alpha = 0.5) +
+        geom_jitter(width = 0.2, alpha = 0.75) +
+        facet_row(~Superpopulation) +
+        scale_x_discrete(guide = guide_axis(n.dodge = 3)) +
+        # facet_grid(facet_row ~ Superpopulation, scales = "free") +
+        # facet_grid_paginate(facet_row ~ Superpopulation,
+        # nrow = 1,
+        # ncol = length(unique(df$Superpopulation)),
+        # page = length(unique(df$facet_row)),
+        # page = i,
+        # scales = "free"
+        # ) +
+        ggtitle("", subtitle = title) +
+        scale_fill_manual(values = pcolors) +
+        scale_color_manual(values = pcolors) +
+        theme_minimal_hgrid() +
+        theme(legend.position = "none") +
+        xlab("Genomic region")
+    print(p)
+    dev.off()
+}
+
+igc_delta <- df %>%
+    group_by(Sample, hap, Superpopulation) %>%
+    dplyr::select(-facet_row, -Sex, -Population, -`# SNVs`, -Mbp) %>%
+    pivot_wider(names_from = region, values_from = `# SNVs per 10 kbp`) %>%
+    summarize(Unique = Unique, SD = SD, `SD-IGC` = `SD-IGC`) %>%
+    mutate(
+        total_diff = SD - Unique,
+        percent_explained_by_igc = 100 * (SD - `SD-IGC`) / total_diff
+    ) %>%
+    mutate(
+        hap = factor(as.character(hap), levels = unique(hap[order(percent_explained_by_igc)]))
+    ) %>%
+    data.table()
+igc_delta
+library(ggbeeswarm)
+igc_delta_plot <- ggplot(
+    data = igc_delta,
+    aes(
+        y = percent_explained_by_igc,
+        # color = Superpopulation,
+        x = Superpopulation,
+        group = Superpopulation
+    )
+) +
+    geom_violin() +
+    geom_beeswarm() +
+    ylab("% of SD divergence increase explained by IGC") +
+    xlab(glue(
+        "Average: {round(mean(igc_delta$percent_explained_by_igc))}%"
+    )) +
+    theme_minimal_grid()
+
+ggsave("figures/igc_delta_plot.pdf")
+```

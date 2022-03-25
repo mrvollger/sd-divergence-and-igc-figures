@@ -1,0 +1,51 @@
+---
+title: "Large SVs"
+author: "Mitchell R. Vollger"
+date: "1/18/2022"
+output: html_document
+---
+
+```{r load-data, include=FALSE}
+source("load-data.R")
+library(ggbeeswarm)
+```
+
+```{r}
+
+# sv <- fread("/net/eichler/vol26/15000/nobackups/saffire_sv/hprc/CHM1_comb.tab")
+sv <- fread("/net/eichler/vol26/15000/nobackups/saffire_sv/hprc/results/raw/CHM1_h2/CHM1_h2_var_all.bed")
+sv <- sv %>%
+    filter(`#CHROM` != "chrY") %>%
+    filter(SVTYPE != "GAP") %>%
+    data.table()
+sat <- fread("/net/eichler/vol26/home/mvollger/chm13_t2t/Assembly_analysis/cen/SAT_arrays_2021_02_25.bed")
+sv_types <- c("INS", "DEL", "DUP", "GAP", "INS_GAP", "DEL_GAP", "INV", "TRANSPOSE", "COMPLEX_ALIGNMENT", "INTER")
+
+sv$SVTYPE <- factor(sv$SVTYPE, levels = sv_types)
+sv$SD <- overlaps(sv, SEDEF_V1.1, mincov = 0.10)
+sv$SAT <- overlaps(sv, sat, mincov = 0.10)
+sv$SD_SAT <- paste(sv$SD, sv$SAT)
+seq <- unique(sv$SVTYPE)
+
+sv_colors <- c(
+    `TRUE TRUE` = "darkorange",
+    `FALSE FALSE` = OLDCOLOR, `FALSE TRUE` = "purple", `TRUE FALSE` = NEWCOLOR
+)
+
+fig <- sv %>%
+    ggplot(aes(weight = SVLEN / 1e6, x = SVTYPE, color = SD_SAT, fill = SD_SAT)) +
+    geom_bar(position = "dodge") +
+    scale_y_continuous(label = comma) +
+    scale_x_discrete(guide = guide_axis(n.dodge = 3)) +
+    scale_fill_manual(values = sv_colors) +
+    scale_color_manual(values = sv_colors) +
+    xlab("SV class") +
+    ylab("Mbp within SVs over 30 kbp") +
+    # theme_cowplot()
+    theme_minimal_hgrid() +
+    theme(legend.position = "top")
+
+
+
+ggsave("Large-SV-Hist.pdf", width = 8, height = 6)
+```
