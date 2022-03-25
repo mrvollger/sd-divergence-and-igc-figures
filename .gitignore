@@ -1,1 +1,13 @@
 **.bed
+**.bed.gz
+**.bb
+**.bed6
+tables/**
+figures/**
+data/**
+Rplots.pdf
+tmp.pdf
+temp/**
+Rdata/**
+workspace.code-workspace
+
