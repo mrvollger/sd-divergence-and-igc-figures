@@ -1291,6 +1291,9 @@ for (my_sample in unique(IGC$Sample)) {
 }
 igc_vcf <- tmp2 %>% arrange(`#CHROM`, POS)
 
+igc_vcf[CHM1 == "1|.", ]$CHM1 <- "1|1"
+igc_vcf[GRCh38 == "1|.", ]$GRCh38 <- "1|1"
+
 write(my_vcf_header, file = "data/gene-conversion/IGC.vcf")
 fwrite(igc_vcf,
     file = "data/gene-conversion/IGC.vcf",
