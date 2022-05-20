@@ -3,7 +3,7 @@ set -euo pipefail
 
 
 ls ./sd.age.txt ./uniq.age.txt \
-  | parallel -n 1 'bedtools annotate -i {} -files large_clint_dels.bed | bedtools nuc -fi ../anno/chm13_v1.1_plus38Y.fasta -bed - | grep -v "^#" > del_anno_{/};'
+  | parallel -n 1 'bedtools annotate -i {} -files large_clint_dels.bed | grep -vw na | bedtools nuc -fi ../anno/chm13_v1.1_plus38Y.fasta -bed - | bedtools annotate -both -i - -files ../gene-conversion/acceptor_gene_conversion_windows.bed  | grep -v "^#" > del_anno_{/};'
 
 
 exit

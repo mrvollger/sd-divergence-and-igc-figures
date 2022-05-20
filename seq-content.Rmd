@@ -269,12 +269,17 @@ tmrca <- c(
     "chrom", "start", "end", "TMRCA", "del_frac",
     "AT", "GC",
     "8_num_A", "9_num_C", "10_num_G", "11_num_T", "12_num_N",
-    "13_num_oth", "14_seq_len"
+    "13_num_oth", "14_seq_len",
+    "igc_count", "igc_frac"
 )
 tsd <- fread("data/TMRCA/del_anno_sd.age.txt", col.names = tmrca)
 tuq <- fread("data/TMRCA/del_anno_uniq.age.txt", col.names = tmrca)
 time.df <- bind_rows(list(`SD` = tsd, `Unique` = tuq), .id = "Region") %>%
-    filter(del_frac < 0.1)
+    filter(del_frac < 0.1) %>%
+    filter(igc_frac <= 0.0) %>%
+    data.table()
+dim(time.df)
+#time.df %>% fwrite("data/TMRCA/TMRCA.tbl", sep="\t", row.names=F)
 
 z <- time.df %>%
     group_by(Region) %>%
@@ -294,7 +299,8 @@ z <- time.df %>%
 ggsave("tmp.pdf")
 
 t_sum <- time.df %>%
-    # filter(chrom != "chrX") %>%
+    #filter(chrom != "chrX") %>%
+    #mutate(is_X = chrom =="chrX") %>%
     group_by(Region) %>%
     mutate(TMRCA = TMRCA / 1e6) %>%
     summarise(
@@ -334,6 +340,15 @@ plot.timing <- cowplot::plot_grid(
 )
 ggsave("tmp.pdf")
 plot.timing <- z
+
+wilcox.test(
+    time.df[Region == "SD"]$TMRCA,
+    time.df[Region == "Unique"]$TMRCA,
+    alternative =  "greater",
+)
+
+
+mean(time.df[Region == "SD"]$TMRCA) / mean(time.df[Region == "Unique"]$TMRCA)
 ```
 
 
@@ -359,24 +374,61 @@ ggsave("figures/full-figs/mutyper.pdf", fig, width = 16 * scale, height = 16 * s
 # some stats from the figs
 ```{r}
 t_sum
-wilcox.test(
-    time.df[Region == "SD"]$TMRCA,
-    time.df[Region == "Unique"]$TMRCA,
-    alternative =  "greater",
-)
 
 spectra_table <- data.table(spectra_table)
 spectra_table[grepl(".CG>T", spectra), ] %>%
     mutate(ave = 1 - SD / Unique) %>%
-    summarise(mean(ave))
-
-1 - 2**(-0.2540655)
+    summarise(mean(ave), 1-mean(2**y) )
 
 targets %>%
     mutate(mid_base = substr(first_three_bases, 2, 2)) %>%
     group_by(stratify) %>%
     mutate(total = sum(target_count)) %>%
     group_by(mid_base, stratify) %>%
-    summarise(frac = sum(target_count) / total) %>%
+    summarise(
+        frac = sum(target_count) / total,
+        total
+    ) %>%
     unique()
+t.test( 
+    x=c(rep(1,122193647*0.424), rep(0,122193647*(1-.424))  ),
+    #y=c(rep(1, 2542623043/1e4*.408), rep(0, 2542623043/1e4*(1-.408) )  ),
+    mu = 0.408,
+    alternative = "greater"
+)
+```
+
+
+
+```{r}
+spectra_table %>%
+  arrange(-y) %>% 
+  mutate(`Fold change`=2**y) %>%
+   select(spectra,`Fold change`, SD, Unique) %>%
+   openxlsx::write.xlsx(
+            file = "tables/Triplet_fold_increases.xlsx",
+            )
+
+```
+
+
+```{r}
+
+
+t.p = grouped_spectra %>%
+    group_by(stratify) %>%
+    mutate(norm_target_percent = target_percent/sum(target_percent) * 100) %>%
+    ungroup() %>%
+    pivot_wider(id_cols=c("spectra", "first_three_bases"),names_from=stratify, values_from=norm_target_percent) %>%
+    mutate(`# GC bases` = as.character(str_count(first_three_bases, "G|C"))) %>%
+    arrange(-Unique) %>%
+    mutate(spectra = factor(spectra, levels=unique(spectra)))
+
+t.p.p=t.p %>%
+    ggplot(aes(color=`# GC bases`, y = Unique, x=spectra) ) +
+    geom_point() + 
+    facet_col(~`# GC bases`)
+
+
+ggsave("tmp.pdf")
 ```

@@ -84,6 +84,7 @@ library(ggbeeswarm)
 f <- "data/sd-divergence-results/annotation/annotation_sizes.tbl"
 anno_sizes <- fread(f, col.names = c("Sample", "Region", "bp")) %>%
     filter(Region == "SD_size" | Region == "Unique_size") %>%
+    filter( !(Sample %in% c("CHM1_2", "GRCh38_2")) ) %>%
     separate(Sample, c("Sample", "Hap"), sep = "_") %>%
     separate(Region, c("Region", "z"), sep = "_") %>%
     mutate(Mbp = as.numeric(bp) / 1e6) %>%
@@ -92,6 +93,7 @@ anno_sizes <- fread(f, col.names = c("Sample", "Region", "bp")) %>%
 anno_sizes %>%
     group_by(Region) %>%
     summarise(mean = mean(bp), median = median(bp))
+dim(anno_sizes)
 
 anno_sizes.p <- anno_sizes %>%
     ggplot(aes(
@@ -107,6 +109,7 @@ anno_sizes.p <- anno_sizes %>%
     scale_color_brewer(palette = "Set1") +
     theme_minimal_grid() +
     theme(legend.position = "none")
+anno_sizes.p
 ggsave(file = "figures/annotation_sizes.pdf", height = 6, width = 8)
 ```
 

@@ -23,26 +23,34 @@ library(HelloRanges)
 library(gt)
 library(valr)
 load("Rdata/plotutils.data")
-regions <- fread("/net/eichler/vol27/projects/hprc/nobackups/assemblies/hifiasm_trio_yr1_genbank/unreliable_regions/ALL.window.bed")
+f="/net/eichler/vol27/projects/hprc/nobackups/assemblies/hifiasm_trio_yr1_genbank/unreliable_regions/ALL.window.bed"
+f = "/net/eichler/vol27/projects/hprc/nobackups/assemblies/hifiasm_trio_yr1_genbank/unreliable_regions/2022-04-22/SD.window.bed.gz"
+regions <- fread(f, nThread = 8)
 colnames(regions) <- c("chrom", "start", "end", "name", "score", "strand", "ts", "te", "color", "source")[1:ncol(regions)]
+regions
+colnames(regions)
 regions$row_id <- seq(nrow(regions))
+regions = regions[chrom!="chrY"]
 
 sds <- SEDEF_V1.1
 colnames(sds)[1:3] <- c("chrom", "start", "end")
 
 regions_sds <- valr::bed_intersect(regions, sds, suffix = c("", "_SD"))
+colnames(regions_sds)
 
 regions_sds_plot.df <- regions_sds %>%
-    # sample_n(1e5) %>%
+    #head(1e5) %>%
     filter(.overlap > 0) %>%
     group_by(chrom, start, end, row_id) %>%
-    slice(which.max(.overlap)) %>%
+    filter(.overlap == max(.overlap)) %>%
+    slice(which.max(matchB_SD * fracMatch_SD)) %>%
     data.table()
 
 # all <- regions_sds_plot.df
-regions_sds_plot.df <- all
-regions_sds_plot.df <- all %>% sample_n(1e5)
-regions_sds_plot.df$name <- factor(regions_sds_plot.df$name, levels = c("Hap", "Col", "Dup", "Err"))
+#regions_sds_plot.df <- all
+#regions_sds_plot.df <- all %>% sample_n(1e5)
+regions_sds_plot.df$name <- factor(regions_sds_plot.df$name, levels = c("Hap", "Col", "Dup", "Err", "Unk"))
+
 ```
 
 ```{r HPRC SD intersect plot}
@@ -51,7 +59,8 @@ dim(regions_sds) / 1e6
 dim(regions_sds_plot.df) / 1e6
 cur_colors <- c(
     Col = "#590181", Dup = "darkorange",
-    Err = NEWCOLOR, Hap = "darkgreen"
+    Err = NEWCOLOR, Hap = "darkgreen",
+    Unk = "darkgray"
 )
 
 p.hist <- ggplot(
@@ -87,5 +96,17 @@ p <- ggplot(
 
 fig <- plot_grid(p.hist, p, ncol = 1, rel_heights = c(1, 3))
 ggsave("hprc_sd_fig.pdf", plot = fig, height = 8, width = 12)
-colnames(regions_sds)
+```
+
+
+```{r}
+regions_sds_plot.df %>% 
+    mutate(is_error = name != "Hap") %>%
+    group_by(name) %>%
+    group_by(is_error) %>%
+    summarise(
+        Mbp = sum(end - start) / 94e6,
+        frac_match = median(fracMatch_SD)*100,
+        sd_len = median(matchB_SD)/1e3
+    ) 
 ```

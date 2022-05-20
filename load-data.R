@@ -111,7 +111,16 @@ if (F) {
     link <- "https://eichlerlab.gs.washington.edu/help/mvollger/share/20130606_g1k_3202_samples_ped_population.txt"
     pop <- fread(link, stringsAsFactors = T) %>%
         dplyr::select(SampleID, Sex, Population, Superpopulation) %>%
-        data.table()
+        data.table() %>% 
+        bind_rows(
+            data.table(
+                SampleID=c("CHM13", "CHM1", "GRCh38"),
+                Sex = c("F","F", "F"),
+                Population = c("EUR", "EUR", "EUR"),
+                Superpopulation = c("EUR", "EUR", "EUR")
+                )
+            )
+    pop
     pop_small <- pop %>%
         dplyr::select(SampleID, Superpopulation) %>%
         data.table()
