@@ -10,4 +10,7 @@ tmp.pdf
 temp/**
 Rdata/**
 workspace.code-workspace
+.vscode*
+tmp*
+
 
