@@ -2,371 +2,300 @@
 ```{r}
 # library(ruler)
 library(latex2exp)
-
-
-seq_con.df <- fread("data/mutyper-results/spectra/stratify/seq_content.tbl")
-colnames(seq_con.df)[length(seq_con.df)] <- "stratify"
-
-
-
-seq_summary <- seq_con.df %>%
-    filter(stratify %in% c("SD", "Unique")) %>%
-    group_by(stratify) %>%
-    summarise(
-        A = sum(`6_num_A`),
-        C = sum(`7_num_C`),
-        G = sum(`8_num_G`),
-        T = sum(`9_num_T`)
-    ) %>%
-    group_by(stratify) %>%
-    mutate(
-        Total = (sum(A) / 1e3 + sum(T) / 1e3 + sum(G) / 1e3 + sum(C) / 1e3) * 1e3,
-        GC = (sum(G) + sum(C)) / Total,
-        AT = (sum(A) + sum(T)) / Total
-    )
-
-sd_targets <- fread("data/mutyper-results/spectra/stratify/SD_targets.txt")
-unique_targets <- fread("data/mutyper-results/spectra/stratify/Unique_targets.txt")
-targets <- bind_rows(
-    list(SD = sd_targets, Unique = unique_targets),
-    .id = "stratify"
-)
-colnames(targets)[2:3] <- c("first_three_bases", "target_count")
-spectra <- fread("data/mutyper-results/tables/stratify/spectra_SD_Unique.tbl") %>%
-    merge(targets, by = c("first_three_bases", "stratify")) %>%
-    mutate(
-        target_percent = count / target_count * 100,
-        count_adj = count / target_count,
-    ) %>%
-    data.table()
-
-grouped_spectra <- spectra %>%
-    group_by(
-        stratify, mid_base,
-        spectra, first_base, last_base,
-        first_three_bases, first_two_bases,
-        target_count
-    ) %>%
-    summarise(count = sum(count), n_samples = length(unique(sample))) %>%
-    mutate(
-        count_adj = count / target_count,
-        target_percent = 100 * (count / n_samples) * 1 / target_count,
-        spectra = gsub(">.", ">", spectra),
-        spectra = gsub(".$", "", spectra),
-    ) %>%
-    data.table()
-grouped_spectra
-
-grouped_spectra %>%
-    group_by(stratify) %>%
-    summarise(sum(count) / 1e6, sum(target_percent))
-
-z <- spectra %>%
-    group_by(
-        stratify, mid_base,
-        spectra, first_base, last_base,
-        first_three_bases, first_two_bases,
-        target_count
-    ) %>%
-    summarise(count = sum(count)) %>%
-    merge(seq_summary)
-
-spectra_table <- grouped_spectra %>%
-    mutate(
-        y = count_adj,
-        y = target_percent,
-    ) %>%
-    pivot_wider(
-        names_from = c("stratify"), values_from = "y",
-        id_cols = c("spectra", "first_base", "mid_base", "first_three_bases"),
-    ) %>%
-    mutate(
-        y = log2(SD / Unique),
-        # y= SD/Unique,
-        size = abs(SD - Unique),
-        rank = rank(y),
-        per = rank / max(rank),
-        `# GC bases` = as.character(str_count(first_three_bases, "G|C"))
-    ) %>%
-    arrange(
-        `# GC bases`,
-        y,
-        mid_base,
-        spectra,
-    ) %>%
-    mutate(
-        spectra = factor(spectra, levels = spectra)
-    )
-
-spectra_plot <- spectra_table %>%
-    data.table() %>%
-    ggplot(
-        aes(
-            x = spectra,
-            y = y, label = spectra,
-            color = `# GC bases`,
-            # size=size,
-            # size = 3,
-        )
-    ) + # , color = stratify)) +
-    geom_point(size = 3) +
-    scale_x_discrete(guide = guide_axis(n.dodge = 6)) +
-    geom_text_repel(
-        data = . %>% filter(per <= 0.10 | per >= 0.90),
-        nudge_y = .05, # )/10,
-        nudge_x = -1,
-        force = 20,
-        # direction = "y",
-        color = "black",
-        size = 3,
-    ) +
-    theme_minimal_grid() +
-    scale_color_viridis_d(direction = -1) +
-    ylab(TeX("$ log_2 \\; \\frac{N \\; corrected \\; SD \\; events}{N \\; corrected \\; unique \\; events}$")) +
-    xlab("Mutation event") +
-    theme(
-        legend.position = "top",
-        plot.margin = margin(0.1, 1, 0.1, 0.1, unit = "cm"),
-    ) +
-    coord_cartesian(clip = "off")
-ggsave("figures/seq_comp.pdf", width = 12)
-ggsave("tmp.pdf", width = 12)
-
-
-
-sum(fread("data/mutyper-results/spectra/stratify/SD_spectra.txt")[, 2:97]) / 1e6
-sum(fread("data/mutyper-results/spectra/stratify/Unique_spectra.txt")[, 2:97]) / 1e6
-
-tmp
-dim(tmp)
-colnames(tmp)
-```
-
-
-
-```{r}
-target_diffs <- targets %>%
-    pivot_wider(
-        names_from = c("stratify"), values_from = "target_count",
-        id_cols = c("first_three_bases"),
-    ) %>%
-    mutate(
-        total_sd = sum(SD),
-        total_u = sum(Unique),
-        fold = (SD / total_sd) / (Unique / total_u),
-        log2 = log2(fold)
-    ) %>%
-    rowwise() %>%
-    mutate(
-        matrix = list(
-            matrix(c(SD, Unique, total_sd - SD, total_u - Unique), nrow = 2)
-        ),
-        # stat_test = list(chisq.test(c(SD, Unique), c(total_sd, total_u))),
-        # stat_test = fisher.test(matrix)$p.value,
-        stat_test = list(chisq.test(matrix)), # $p.value,
-        pval = stat_test$p.value * nrow(.),
-        `# GC bases` = as.character(str_count(first_three_bases, "G|C"))
-    ) %>%
-    ungroup() %>%
-    arrange(
-        `# GC bases`,
-        log2,
-        first_three_bases
-    ) %>%
-    mutate(
-        first_three_bases = factor(first_three_bases, levels = first_three_bases)
-    )
-target_diffs
-
-target_plot <- ggplot(
-    target_diffs,
-    aes(
-        x = first_three_bases,
-        y = log2,
-        # y = -log10(pval),
-        # color = pval < 0.05,
-        label = first_three_bases,
-        color = `# GC bases`,
-    )
-) +
-    geom_point(size = 3) +
-    scale_x_discrete(guide = guide_axis(n.dodge = 3)) +
-    scale_color_viridis_d(direction = -1) +
-    ylab(TeX("$ log_2 \\; \\frac{SD \\; 3mer \\; counts}{Unique \\; 3mer \\; counts}$")) +
-    xlab("") +
-    theme_minimal_grid() +
-    theme(legend.position = "top")
-
-ggsave("tmp.pdf")
-```
-
-
-```{r}
 library(ggfortify)
 library(compositions)
+library(conflicted)
+conflicted::conflict_prefer(name = "select", winner = "dplyr")
+conflict_prefer("filter", "dplyr")
 
-spectra_wide <- spectra %>%
-    # filter(stratify == "Unique") %>%
-    group_by(stratify) %>%
-    # mutate(target_percent = count_adj) %>%
-    mutate(target_percent = target_percent / sum(target_percent)) %>%
-    ungroup() %>%
-    merge(pop_small, by.x = "sample", by.y = "SampleID") %>%
-    # filter(stratify == "Unique") %>%
-    pivot_wider(id_cols = c("stratify", "sample", "Superpopulation"), names_from = c("spectra"), values_from = c("target_percent")) %>%
-    data.table()
-spec_mat <- spectra_wide[, 4:ncol(spectra_wide)]
-spec_mat %>% as.tibble()
-# normatize per row
-spec_mat <- t(apply(spec_mat, 1, function(x) (x) / (sum(x))))
-# log scale per will suggestion
-spec_mat <- clr(spec_mat)
+IS_IGC=""
+IS_IGC="-no-igc"
 
-spectra_pca <- prcomp(spec_mat, scale. = TRUE)
-sort(spectra_pca$rotation[, 1])
+SD_var = "SDnoIGC"
+SD_var = "SD"
+SD_var = "SDIGC"
 
-pca_plot <- spectra %>%
-    merge(pop_small, by.x = "sample", by.y = "SampleID") %>%
-    ggplot(
-        aes(
-            x = PC1,
-            y = PC2,
-            color = Superpopulation,
-            # shape = stratify,
+population = ""
+population = "_population"
+
+for( SD_var in c("SDnoIGC", "SD", "SDIGC") ){
+    for( population in c("", "_population") ) {
+        sd_targets <- fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/{SD_var}_targets.txt"))
+        unique_targets <- fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/Unique_targets.txt"))
+        targets <- bind_rows(
+            list(SD = sd_targets, Unique = unique_targets),
+            .id = "stratify"
         )
-    ) +
-    geom_point() +
-    theme_minimal_grid() +
-    facet_row(~stratify, scales = "free") +
-    theme(legend.position = "top")
+        colnames(targets)[2:3] <- c("first_three_bases", "target_count")
+        spectra <- fread(glue("data/mutyper-results{IS_IGC}/tables/stratify/spectra_{SD_var}_Unique{population}.tbl")) %>%
+            mutate(
+                stratify = case_when(
+                    stratify == SD_var ~ "SD",
+                    TRUE ~ stratify 
+                )
+            ) %>% 
+            merge(targets, by = c("first_three_bases", "stratify")) %>%
+            mutate(
+                target_percent = count / target_count * 100,
+                count_adj = count / target_count,
+            ) %>%
+            data.table()
+        table(spectra$stratify)
 
-pca_plot <- autoplot(spectra_pca,
-    data = spectra_wide,
-    colour = "Superpopulation",
-    shape = "stratify",
-    # x = 4, y = 5
-) +
-    scale_color_brewer("", palette = "Set1") +
-    scale_shape_discrete("") +
-    guides(
-        color = guide_legend(nrow = 2),
-        shape = guide_legend(nrow = 2)
-    ) +
-    theme_minimal_grid() +
-    theme(
-        legend.position = "top"
-    )
+        grouped_spectra <- spectra %>%
+            group_by(
+                stratify, mid_base,
+                spectra, first_base, last_base,
+                first_three_bases, first_two_bases,
+                target_count
+            ) %>%
+            summarise(count = sum(count), n_samples = length(unique(sample))) %>%
+            mutate(
+                count_adj = count / target_count,
+                target_percent = 100 * (count / n_samples) * 1 / target_count,
+                spectra = gsub(">.", ">", spectra),
+                spectra = gsub(".$", "", spectra),
+            ) %>%
+            data.table()
+        grouped_spectra
 
-ggsave("tmp.pdf")
-```
+        grouped_spectra %>%
+            group_by(stratify) %>%
+            summarise(sum(count) / 1e6, sum(target_percent))
 
+        spectra_table <- grouped_spectra %>%
+            mutate(
+                y = count_adj,
+                y = target_percent,
+            ) %>%
+            pivot_wider(
+                names_from = c("stratify"), values_from = "y",
+                id_cols = c("spectra", "first_base", "mid_base", "first_three_bases"),
+            ) %>%
+            mutate(
+                y = log2(SD / Unique),
+                # y= SD/Unique,
+                size = abs(SD - Unique),
+                rank = rank(y),
+                per = rank / max(rank),
+                `# GC bases` = as.character(str_count(first_three_bases, "G|C"))
+            ) %>%
+            arrange(
+                `# GC bases`,
+                y,
+                mid_base,
+                spectra,
+            ) %>%
+            mutate(
+                spectra = factor(spectra, levels = spectra)
+            )
 
-
-
-```{r}
-library(gridExtra)
-tmrca <- c(
-    "chrom", "start", "end", "TMRCA", "del_frac",
-    "AT", "GC",
-    "8_num_A", "9_num_C", "10_num_G", "11_num_T", "12_num_N",
-    "13_num_oth", "14_seq_len",
-    "igc_count", "igc_frac"
-)
-tsd <- fread("data/TMRCA/del_anno_sd.age.txt", col.names = tmrca)
-tuq <- fread("data/TMRCA/del_anno_uniq.age.txt", col.names = tmrca)
-time.df <- bind_rows(list(`SD` = tsd, `Unique` = tuq), .id = "Region") %>%
-    filter(del_frac < 0.1) %>%
-    filter(igc_frac <= 0.0) %>%
-    data.table()
-dim(time.df)
-#time.df %>% fwrite("data/TMRCA/TMRCA.tbl", sep="\t", row.names=F)
-
-z <- time.df %>%
-    group_by(Region) %>%
-    mutate(
-        per = ecdf(TMRCA)(TMRCA),
-        is_old = TMRCA > mean(TMRCA) + 1 * sd(TMRCA),
-        is_old = per > 0.9,
-        GC = GC / mean(GC)
-    ) %>%
-    group_by(Region, is_old) %>%
-    # summarise(mean(GC), n())
-    ggplot(aes(x = GC, fill = Region)) +
-    scale_fill_manual(values = COLORS) +
-    geom_histogram(bins = 50) +
-    facet_grid(is_old ~ Region, scale = "free_y") +
-    theme_minimal_grid()
-ggsave("tmp.pdf")
-
-t_sum <- time.df %>%
-    #filter(chrom != "chrX") %>%
-    #mutate(is_X = chrom =="chrX") %>%
-    group_by(Region) %>%
-    mutate(TMRCA = TMRCA / 1e6) %>%
-    summarise(
-        `# windows` = n(),
-        # max(TMRCA),
-        `mean TMRCA (myr)` = mean(TMRCA),
-        `median TMRCA (myr)` = median(TMRCA)
-    ) %>%
-    mutate(across(where(is.numeric), round, 3)) %>%
-    # mutate(across(where(is.numeric), comma))
-    data.table()
-t_sum
-
-z <- time.df %>%
-    ggplot(aes(x = TMRCA, color = Region)) +
-    stat_ecdf(geom = "step", size = 1, alpha = 0.8) +
-    scale_x_continuous("Time to most recent common ancestor (TMRCA)",
-        trans = "log10", label = comma
-    ) +
-    ylab("Fraction of 10 kbp windows") +
-    scale_color_manual("", values = COLORS[c("SD", "Unique")]) +
-    theme_cowplot() +
-    facet_zoom(2e5 < TMRCA & TMRCA < 4e6, zoom.size = 3) +
-    annotation_logticks(sides = "b") +
-    theme(legend.position = "top")
-
-tt <- ttheme_minimal(
-    base_size = 12,
-    padding = unit(c(2, 2), "mm"),
-    core = list(padding = unit(c(1, 1), "mm")),
-)
-
-plot.timing <- cowplot::plot_grid(
-    tableGrob(t_sum, theme = tt, rows = NULL),
-    z,
-    rel_heights = c(1, 10), ncol = 1
-)
-ggsave("tmp.pdf")
-plot.timing <- z
-
-wilcox.test(
-    time.df[Region == "SD"]$TMRCA,
-    time.df[Region == "Unique"]$TMRCA,
-    alternative =  "greater",
-)
-
-
-mean(time.df[Region == "SD"]$TMRCA) / mean(time.df[Region == "Unique"]$TMRCA)
-```
+        spectra_plot <- spectra_table %>%
+            data.table() %>%
+            ggplot(
+                aes(
+                    x = spectra,
+                    y = y, label = spectra,
+                    color = `# GC bases`,
+                    # size=size,
+                    # size = 3,
+                )
+            ) + # , color = stratify)) +
+            geom_point(size = 3) +
+            scale_x_discrete(guide = guide_axis(n.dodge = 6)) +
+            geom_text_repel(
+                data = . %>% filter(per <= 0.10 | per >= 0.90),
+                nudge_y = .05, # )/10,
+                nudge_x = -1,
+                force = 20,
+                # direction = "y",
+                color = "black",
+                size = 3,
+            ) +
+            theme_minimal_grid() +
+            scale_color_viridis_d(direction = -1) +
+            ylab(TeX("$ log_2 \\; \\frac{mutation \\; rate \\;\\; SDs}{mutation \\; rate \\;\\; Unique}$")) +
+            xlab("Mutation event") +
+            theme(
+                legend.position = "top",
+                plot.margin = margin(0.1, 1, 0.1, 0.1, unit = "cm"),
+            ) +
+            coord_cartesian(clip = "off")
+        #ggsave(glue("figures/seq_comp{IS_IGC}.pdf"), width = 12)
+        #ggsave("tmp.pdf", width = 12)
 
 
 
+        sum(fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/{SD_var}_spectra.txt"))[, 2:97]) / 1e6
+        sum(fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/Unique_spectra.txt"))[, 2:97]) / 1e6
 
-```{r}
-layout <- "
-AAAABBBBBB
-AAAACCCCCC
-DDDDDDDDDD
-DDDDDDDDDD
-"
-fig <- plot.timing + target_plot + pca_plot + spectra_plot + # plot.timing +
-    plot_layout(design = layout) +
-    plot_annotation(tag_levels = "a") & theme(plot.tag = element_text(size = 24))
-scale <- 0.8
-ggsave("tmp.pdf", fig, width = 16 * scale, height = 16 * scale)
-ggsave("figures/full-figs/mutyper.pdf", fig, width = 16 * scale, height = 16 * scale)
+        
+        ########################################################################################
+        ########################################################################################
+        ########################################################################################
+
+        target_diffs <- targets %>%
+            pivot_wider(
+                names_from = c("stratify"), values_from = "target_count",
+                id_cols = c("first_three_bases"),
+            ) %>%
+            mutate(
+                total_sd = sum(SD),
+                total_u = sum(Unique),
+                fold = (SD / total_sd) / (Unique / total_u),
+                log2 = log2(fold)
+            ) %>%
+            rowwise() %>%
+            mutate(
+                matrix = list(
+                    matrix(c(SD, Unique, total_sd - SD, total_u - Unique), nrow = 2)
+                ),
+                # stat_test = list(chisq.test(c(SD, Unique), c(total_sd, total_u))),
+                # stat_test = fisher.test(matrix)$p.value,
+                stat_test = list(chisq.test(matrix)), # $p.value,
+                pval = stat_test$p.value * nrow(.),
+                `# GC bases` = as.character(str_count(first_three_bases, "G|C"))
+            ) %>%
+            ungroup() %>%
+            arrange(
+                `# GC bases`,
+                log2,
+                first_three_bases
+            ) %>%
+            mutate(
+                first_three_bases = factor(first_three_bases, levels = first_three_bases)
+            )
+        target_diffs
+
+        target_plot <- ggplot(
+            target_diffs,
+            aes(
+                x = first_three_bases,
+                y = log2,
+                # y = -log10(pval),
+                # color = pval < 0.05,
+                label = first_three_bases,
+                color = `# GC bases`,
+            )
+        ) +
+            geom_point(size = 3) +
+            scale_x_discrete(guide = guide_axis(n.dodge = 3)) +
+            scale_color_viridis_d(direction = -1) +
+            ylab(TeX("$ log_2 \\; \\frac{SD \\; 3mer \\; composition}{Unique \\; 3mer \\; composition}$")) +
+            xlab("") +
+            theme_minimal_grid() +
+            theme(legend.position = "top")
+
+        ########################################################################################
+        ########################################################################################
+        ########################################################################################
+
+
+
+        spectra_wide <- spectra %>%
+            # filter(stratify == "Unique") %>%
+            group_by(stratify) %>%
+            # mutate(target_percent = count_adj) %>%
+            mutate(target_percent = target_percent / sum(target_percent)) %>%
+            ungroup() %>%
+            merge(pop_small, by.x = "sample", by.y = "SampleID", all.x=TRUE) %>%
+            # filter(stratify == "Unique") %>%
+            pivot_wider(id_cols = c("stratify", "sample", "Superpopulation"), names_from = c("spectra"), values_from = c("target_percent")) %>%
+            data.table()
+        spec_mat <- spectra_wide[, 4:ncol(spectra_wide)]
+        spec_mat %>% as.tibble()
+        # normatize per row
+        spec_mat <- t(apply(spec_mat, 1, function(x) (x) / (sum(x))))
+        # log scale per will suggestion
+        spec_mat <- clr(spec_mat)
+
+        spectra_pca <- prcomp(spec_mat, scale. = TRUE)
+        sort(spectra_pca$rotation[, 1])
+
+        pca_plot <- spectra %>%
+            merge(pop_small, by.x = "sample", by.y = "SampleID", all.x=TRUE) %>%
+            ggplot(
+                aes(
+                    x = PC1,
+                    y = PC2,
+                    color = Superpopulation,
+                    # shape = stratify,
+                )
+            ) +
+            geom_point() +
+            theme_minimal_grid() +
+            facet_row(~stratify, scales = "free") +
+            theme(legend.position = "top")
+
+        pca_plot <- autoplot(spectra_pca,
+            data = spectra_wide,
+            colour = "Superpopulation",
+            shape = "stratify",
+            # x = 4, y = 5
+        ) +
+            scale_color_brewer("", palette = "Set1") +
+            scale_shape_discrete("") +
+            guides(
+                color = guide_legend(nrow = 2),
+                shape = guide_legend(nrow = 2)
+            ) +
+            theme_minimal_grid() +
+            theme(
+                legend.position = "top"
+            )
+
+        #ggsave("tmp.pdf")
+
+        ########################################################################################
+        ########################################################################################
+        ########################################################################################
+
+        grep_term="(A|T).>(C|G)"
+        get_enrichment <- function(spectra_table, grep_term){
+            z= spectra_table %>%
+            arrange(-y) %>% 
+            mutate(`Fold change`=2**y, z = SD/Unique  ) %>%
+            select(spectra,`Fold change`, SD, Unique) %>%
+            filter(grepl(grep_term, spectra)) %>%
+            summarise(
+                change=sum(SD)/sum(Unique),
+            )
+            round(z[[1]],3)
+        }
+
+        #anno = data.frame(  spectra=c("GCG>G","TCG>T"),
+        #    y=c(get_enrichment(spectra_table,"C.>G"), get_enrichment(spectra_table,"CG>T"))
+        #)
+        library(ggplot2)
+        spectra_plot_anno=spectra_plot + ggplot2::annotate("text",
+            x = 60, 
+            y = 0.25,
+            label = glue('.CG > T {get_enrichment(spectra_table,"CG>T")}')
+        ) + ggplot2::annotate("text",
+            x = 60, 
+            y = 0.35,
+            label = glue('C > G {get_enrichment(spectra_table,"C.>G")}')
+        ) + ggplot2::annotate("text",
+            x = 60, 
+            y = 0.45,
+            label = glue('(C,G) > (A,T) {get_enrichment(spectra_table,"(C|G).>(A|T)")}')
+        )
+
+        layout <- "
+        AAAABBBBBB
+        AAAACCCCCC
+        DDDDDDDDDD
+        DDDDDDDDDD
+        "
+        library(patchwork)
+        fig <- plot.timing + target_plot + pca_plot + spectra_plot_anno + # plot.timing +
+            plot_layout(design = layout) +
+            plot_annotation(tag_levels = "a") & theme(plot.tag = element_text(size = 24))
+        scale <- 0.8
+        #ggsave("tmp.pdf", fig, width = 16 * scale, height = 16 * scale)
+        ggsave(glue("figures/full-figs/mutyper{population}_{SD_var}.pdf"), fig, width = 16 * scale, height = 16 * scale)
+    }
+}
 ```
 
 
@@ -378,7 +307,7 @@ t_sum
 spectra_table <- data.table(spectra_table)
 spectra_table[grepl(".CG>T", spectra), ] %>%
     mutate(ave = 1 - SD / Unique) %>%
-    summarise(mean(ave), 1-mean(2**y) )
+    summarise(mean(ave), 1-mean(2**y), 1-sum(SD)/sum(Unique))
 
 targets %>%
     mutate(mid_base = substr(first_three_bases, 2, 2)) %>%
@@ -406,14 +335,25 @@ spectra_table %>%
   mutate(`Fold change`=2**y) %>%
    select(spectra,`Fold change`, SD, Unique) %>%
    openxlsx::write.xlsx(
-            file = "tables/Triplet_fold_increases.xlsx",
+            file = "tables/Triplet_fold_increases{IS_IGC}.xlsx",
             )
 
+get_enrichment <- function(spectra_table, grep_term){
+    spectra_table %>%
+    arrange(-y) %>% 
+    mutate(`Fold change`=2**y, z = SD/Unique  ) %>%
+    select(spectra,`Fold change`, SD, Unique) %>%
+    filter(grepl(grep_term, spectra)) %>%
+    summarise(
+        change=sum(SD)/sum(Unique),
+    )
+}
+get_enrichment(spectra_table,"C.>G")
+get_enrichment(spectra_table,"C.>T")
 ```
 
 
 ```{r}
-
 
 t.p = grouped_spectra %>%
     group_by(stratify) %>%
@@ -424,6 +364,9 @@ t.p = grouped_spectra %>%
     arrange(-Unique) %>%
     mutate(spectra = factor(spectra, levels=unique(spectra)))
 
+ggsave("tmp.pdf")
+
+
 t.p.p=t.p %>%
     ggplot(aes(color=`# GC bases`, y = Unique, x=spectra) ) +
     geom_point() + 
@@ -431,4 +374,38 @@ t.p.p=t.p %>%
 
 
 ggsave("tmp.pdf")
+```
+
+
+# unused chunks ?
+```{r }
+seq_con.df <- fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/seq_content.tbl"))
+colnames(seq_con.df)[length(seq_con.df)] <- "stratify"
+
+seq_summary <- seq_con.df %>%
+    filter(stratify %in% c("SD", "Unique")) %>%
+    group_by(stratify) %>%
+    summarise(
+        A = sum(`6_num_A`),
+        C = sum(`7_num_C`),
+        G = sum(`8_num_G`),
+        T = sum(`9_num_T`)
+    ) %>%
+    group_by(stratify) %>%
+    mutate(
+        Total = (sum(A) / 1e3 + sum(T) / 1e3 + sum(G) / 1e3 + sum(C) / 1e3) * 1e3,
+        GC = (sum(G) + sum(C)) / Total,
+        AT = (sum(A) + sum(T)) / Total
+    )
+
+z <- spectra %>%
+    group_by(
+        stratify, mid_base,
+        spectra, first_base, last_base,
+        first_three_bases, first_two_bases,
+        target_count
+    ) %>%
+    summarise(count = sum(count)) %>%
+    merge(seq_summary)
+
 ```

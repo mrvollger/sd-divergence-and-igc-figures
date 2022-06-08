@@ -1,0 +1,88 @@
+```{r}
+library(gridExtra)
+tmrca <- c(
+    "chrom", "start", "end", "TMRCA", "del_frac",
+    "AT", "GC",
+    "8_num_A", "9_num_C", "10_num_G", "11_num_T", "12_num_N",
+    "13_num_oth", "14_seq_len",
+    "igc_count", "igc_frac"
+)
+tsd <- fread("data/TMRCA/del_anno_sd.age.txt", col.names = tmrca)
+tuq <- fread("data/TMRCA/del_anno_uniq.age.txt", col.names = tmrca)
+time.df <- bind_rows(list(`SD` = tsd, `Unique` = tuq), .id = "Region") %>%
+    filter(del_frac < 0.1) %>%
+    #filter(igc_frac <= 0.0) %>%
+    data.table()
+dim(time.df)
+#time.df %>% fwrite("data/TMRCA/TMRCA.tbl", sep="\t", row.names=F)
+
+z <- time.df %>%
+    group_by(Region) %>%
+    mutate(
+        per = ecdf(TMRCA)(TMRCA),
+        is_old = TMRCA > mean(TMRCA) + 1 * sd(TMRCA),
+        is_old = per > 0.9,
+        GC = GC / mean(GC)
+    ) %>%
+    group_by(Region, is_old) %>%
+    # summarise(mean(GC), n())
+    ggplot(aes(x = GC, fill = Region)) +
+    scale_fill_manual(values = COLORS) +
+    geom_histogram(bins = 50) +
+    facet_grid(is_old ~ Region, scale = "free_y") +
+    theme_minimal_grid()
+ggsave("tmp.pdf")
+
+t_sum <- time.df %>%
+    #filter(chrom != "chrX") %>%
+    #mutate(is_X = chrom =="chrX") %>%
+    group_by(Region) %>%
+    mutate(TMRCA = TMRCA / 1e6) %>%
+    summarise(
+        `# windows` = n(),
+        # max(TMRCA),
+        `mean TMRCA (myr)` = mean(TMRCA),
+        `median TMRCA (myr)` = median(TMRCA)
+    ) %>%
+    mutate(across(where(is.numeric), round, 3)) %>%
+    # mutate(across(where(is.numeric), comma))
+    data.table()
+t_sum
+
+z <- time.df %>%
+    ggplot(aes(x = TMRCA, color = Region)) +
+    stat_ecdf(geom = "step", size = 1, alpha = 0.8) +
+    scale_x_continuous("Time to most recent common ancestor (TMRCA)",
+        trans = "log10", label = comma
+    ) +
+    ylab("Fraction of 10 kbp windows") +
+    scale_color_manual("", values = COLORS[c("SD", "Unique")]) +
+    theme_cowplot() +
+    facet_zoom(2e5 < TMRCA & TMRCA < 4e6, zoom.size = 3) +
+    annotation_logticks(sides = "b") +
+    theme(legend.position = "top")
+
+tt <- ttheme_minimal(
+    base_size = 12,
+    padding = unit(c(2, 2), "mm"),
+    core = list(padding = unit(c(1, 1), "mm")),
+)
+
+plot.timing <- cowplot::plot_grid(
+    tableGrob(t_sum, theme = tt, rows = NULL),
+    z,
+    rel_heights = c(1, 10), ncol = 1
+)
+ggsave("tmp.pdf")
+plot.timing <- z
+
+wilcox.test(
+    time.df[Region == "SD"]$TMRCA,
+    time.df[Region == "Unique"]$TMRCA,
+    alternative =  "greater",
+)
+
+
+mean(time.df[Region == "SD"]$TMRCA) / mean(time.df[Region == "Unique"]$TMRCA)
+```
+

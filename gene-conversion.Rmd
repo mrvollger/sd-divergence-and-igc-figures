@@ -463,8 +463,9 @@ make_gc_ideogram(a, d, chrm,
 
 ```{r}
 IGC %>%
-    head(3) %>%
+    #head(1000) %>%
      add_gene_list_col(genelist = ALL_GENES_V1.1,
+     cols=acceptor_columns,
      outcol = "orthologous.genes") %>%
      add_gene_list_col(genelist = ALL_GENES_V1.1,
      outcol = "IGC.genes", cols = donor_columns) %>%
@@ -480,7 +481,7 @@ IGC %>%
         paste0(c, ".donor")
     }, matches("^(chrm|start|end|mismatches|perID_by_all)$")) %>%
     group_by(group) %>%
-    mutate(`Seen in n samples` = n()) %>%
+    mutate(`Seen in n samples` = length(unique(sample)) ) %>%
     separate(sample, c("SampleID", "hap"), sep = "_") %>%
     # merge(pop_small, all.x = T, by = "SampleID") %>%
     dplyr::select(-Sample) %>%
