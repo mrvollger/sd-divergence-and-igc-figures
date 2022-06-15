@@ -462,7 +462,14 @@ make_gc_ideogram(a, d, chrm,
 
 
 ```{r}
-IGC %>%
+#library(dtplyr)
+#detach("package:dtplyr")  
+#library(dplyr, warn.conflicts = FALSE)
+library(conflicted)
+conflicted::conflict_prefer(name = "rename", winner = "dplyr")
+conflict_prefer("rename", "dplyr")
+
+out_igc = IGC %>%
     #head(1000) %>%
      add_gene_list_col(genelist = ALL_GENES_V1.1,
      cols=acceptor_columns,
@@ -470,10 +477,10 @@ IGC %>%
      add_gene_list_col(genelist = ALL_GENES_V1.1,
      outcol = "IGC.genes", cols = donor_columns) %>%
     select(-thickStart, -thickEnd, -color, -strand, -score, -status, -cum.bp, -igc_count, -Sex, -Population) %>%
-    rename(setNames(names(.), gsub("\\.liftover", ".acceptor", names(.)))) %>%
-    rename(setNames(names(.), gsub(".*reference_name", "chrm", names(.)))) %>%
-    rename(setNames(names(.), gsub("reference_", "", names(.)))) %>%
-    rename_with(function(.) {
+    dplyr::rename(setNames(names(.), gsub("\\.liftover", ".acceptor", names(.)))) %>%
+    dplyr::rename(setNames(names(.), gsub(".*reference_name", "chrm", names(.)))) %>%
+    dplyr::rename(setNames(names(.), gsub("reference_", "", names(.)))) %>%
+    dplyr::rename_with(function(.) {
         "# of supporting SNVs"
     }, name) %>%
     mutate(kbp = comma((end - start) / 1e3, accuracy = 0.1)) %>%
@@ -485,13 +492,85 @@ IGC %>%
     separate(sample, c("SampleID", "hap"), sep = "_") %>%
     # merge(pop_small, all.x = T, by = "SampleID") %>%
     dplyr::select(-Sample) %>%
-    data.table() %>%
+    data.table() 
+
+out_igc %>%
     openxlsx::write.xlsx("tables/Master_IGC.xlsx",
         colWidths = 10,
         firstRow = TRUE,
         firstCol = TRUE,
         gridLines = FALSE, colNames = TRUE
     )
+
+out_igc %>% head(3)
+dim(out_igc)
+colnames(merged_df)
+colnames(out_igc) 
+out_merged_df = merged_df %>%
+    dplyr::rename(setNames(names(.), gsub("\\.liftover", ".acceptor", names(.)))) %>%
+    dplyr::rename(  "# of supporting SNVs" = name) %>%
+    dplyr::rename(  "Seen in n haplotypes" = n) %>%
+    as.data.table() %>%
+    dplyr::rename(setNames(names(.), gsub(".*reference_name", "chrm", names(.)))) %>%
+    as.data.table() %>%
+    rename_with(function(c) {
+        paste0(c, ".donor")
+    }, matches("^(chrm|start|end|mismatches|perID_by_all)$"))  %>%
+    select(-thickStart, -thickEnd, -igc_count, -`cum.bp`) %>%
+    as.data.table() 
+    
+out_merged_df %>%
+        openxlsx::write.xlsx("tables/Master_merged_IGC.xlsx",
+        colWidths = 10,
+        firstRow = TRUE,
+        firstCol = TRUE,
+        gridLines = FALSE, colNames = TRUE
+        )
+dim(out_merged_df)
+```
+
+
+```{r}
+out_igc$Haplotype = "All"
+out_merged_df$Haplotype = "All"
+hap_out_igc = copy(out_igc)
+hap_out_igc$Haplotype = paste(hap_out_igc$SampleID, hap_out_igc$hap)
+sum_df = bind_rows(
+    list(
+        `All events` = out_igc,
+        `All events (min 5 SNVs)`=out_igc[`# of supporting SNVs` >= 5],
+        `All events (min 10 SNVs)`=out_igc[`# of supporting SNVs` >= 10],
+        `Merged events`=out_merged_df,
+        `Merged events (min 5 SNVs)`=out_merged_df[`# of supporting SNVs` >= 5],
+        `Merged events (min 10 SNVs)`=out_merged_df[`# of supporting SNVs` >= 10],
+        `By sample` = hap_out_igc,
+        `By sample (min 5 SNVs)`=hap_out_igc[`# of supporting SNVs` >= 5],
+        `By sample (min 10 SNVs)`=hap_out_igc[`# of supporting SNVs` >= 10]
+    ),
+          .id="Category") %>%
+    mutate(
+        Superpopulation = case_when(!startsWith(Category, "By sample") ~ "NA", TRUE ~ as.character(Superpopulation)),
+        Category = factor(Category, levels=unique(Category)),
+        ) %>%
+    group_by(Category, Haplotype, Superpopulation) %>%
+    summarise(
+        `Ave. # of supporting SNVs`=mean(`# of supporting SNVs`),
+        `Ave. # of supporting SNVs per kbp`=mean(`# of supporting SNVs`/length * 1000),
+        `Ave. length`=mean(`length`),
+        `Max length` = max(`length`),
+        count = n()
+    ) %>%
+    arrange(Category, Superpopulation, Haplotype) %>%
+    as.data.table()
+sum_df
+sum_df %>% 
+    openxlsx::write.xlsx("tables/Summary_IGC_stats.xlsx",
+        colWidths = 25,
+        firstRow = TRUE,
+        firstCol = TRUE,
+        gridLines = FALSE, colNames = TRUE
+                )
+
 ```
 
 ## Make a gene intersection table

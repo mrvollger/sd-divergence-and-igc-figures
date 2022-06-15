@@ -1,13 +1,27 @@
 
 ```{r}
 # library(ruler)
+library(tidyverse)
+library(data.table)
 library(latex2exp)
 library(ggfortify)
 library(compositions)
 library(conflicted)
+library(stringr)
+library(glue)
+library(ggrepel)
+library(cowplot, help, pos = 2, lib.loc = NULL)
+library(ggforce, help, pos = 2, lib.loc = NULL)
 conflicted::conflict_prefer(name = "select", winner = "dplyr")
 conflict_prefer("filter", "dplyr")
+conflict_prefer("summarise", "dplyr")
+detach("package:tidylog")
+```
 
+```{r}
+source("load-data.R")
+```
+```{r}
 IS_IGC=""
 IS_IGC="-no-igc"
 
@@ -18,10 +32,14 @@ SD_var = "SDIGC"
 population = ""
 population = "_population"
 
-for( SD_var in c("SDnoIGC", "SD", "SDIGC") ){
-    for( population in c("", "_population") ) {
+unique_targets <- fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/Unique_targets.txt"))
+
+# for saving results 
+wb <- createWorkbook()
+
+for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
+    for( population in c("") ) { #, "_population"
         sd_targets <- fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/{SD_var}_targets.txt"))
-        unique_targets <- fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/Unique_targets.txt"))
         targets <- bind_rows(
             list(SD = sd_targets, Unique = unique_targets),
             .id = "stratify"
@@ -32,14 +50,26 @@ for( SD_var in c("SDnoIGC", "SD", "SDIGC") ){
                 stratify = case_when(
                     stratify == SD_var ~ "SD",
                     TRUE ~ stratify 
-                )
+                ),
+                change_to = substr(spectra, 6,6),
+                change = paste(first_base, ">", change_to)
             ) %>% 
             merge(targets, by = c("first_three_bases", "stratify")) %>%
+            # normalize counts so same # of counts happen in SD and unique 
+            group_by(stratify) %>%
             mutate(
-                target_percent = count / target_count * 100,
-                count_adj = count / target_count,
+                #norm = sum(count)/sum(target_count),
+                #count = count / sum(count),
+                #target_count = target_count / sum(target_count)
             ) %>%
-            data.table()
+            ungroup() %>%
+            mutate(
+                #target_percent = count / target_count * 100,
+                #count_adj = count / target_count,
+            ) %>%
+            as.data.table()
+        spectra
+        print( spectra %>% group_by(stratify) %>% summarise(sum(count)/1e6,sum(target_count)/1e6) )
         table(spectra$stratify)
 
         grouped_spectra <- spectra %>%
@@ -47,37 +77,41 @@ for( SD_var in c("SDnoIGC", "SD", "SDIGC") ){
                 stratify, mid_base,
                 spectra, first_base, last_base,
                 first_three_bases, first_two_bases,
+                change, change_to,
                 target_count
             ) %>%
             summarise(count = sum(count), n_samples = length(unique(sample))) %>%
             mutate(
                 count_adj = count / target_count,
-                target_percent = 100 * (count / n_samples) * 1 / target_count,
+                target_percent = count / target_count,
                 spectra = gsub(">.", ">", spectra),
                 spectra = gsub(".$", "", spectra),
             ) %>%
-            data.table()
+            group_by(stratify) %>%
+            mutate(target_percent = target_percent / sum(target_percent)) %>%
+            as.data.table()
         grouped_spectra
 
-        grouped_spectra %>%
+        k=grouped_spectra %>%
             group_by(stratify) %>%
-            summarise(sum(count) / 1e6, sum(target_percent))
+            summarise(sum(count), sum(target_count), sum(target_percent))
+        print(k)
 
         spectra_table <- grouped_spectra %>%
             mutate(
-                y = count_adj,
+                #y = count_adj,
                 y = target_percent,
             ) %>%
             pivot_wider(
                 names_from = c("stratify"), values_from = "y",
-                id_cols = c("spectra", "first_base", "mid_base", "first_three_bases"),
+                id_cols = c("spectra", "first_base", "mid_base", "first_three_bases", "change", "change_to"),
             ) %>%
             mutate(
                 y = log2(SD / Unique),
                 # y= SD/Unique,
                 size = abs(SD - Unique),
-                rank = rank(y),
-                per = rank / max(rank),
+                z_rank = rank(y),
+                per = z_rank / max(z_rank),
                 `# GC bases` = as.character(str_count(first_three_bases, "G|C"))
             ) %>%
             arrange(
@@ -88,7 +122,9 @@ for( SD_var in c("SDnoIGC", "SD", "SDIGC") ){
             ) %>%
             mutate(
                 spectra = factor(spectra, levels = spectra)
-            )
+            ) %>%
+            as.data.table()
+        spectra_table
 
         spectra_plot <- spectra_table %>%
             data.table() %>%
@@ -113,21 +149,24 @@ for( SD_var in c("SDnoIGC", "SD", "SDIGC") ){
                 size = 3,
             ) +
             theme_minimal_grid() +
+            facet_row(~change, scales = "free_x")+
             scale_color_viridis_d(direction = -1) +
-            ylab(TeX("$ log_2 \\; \\frac{mutation \\; rate \\;\\; SDs}{mutation \\; rate \\;\\; Unique}$")) +
+            # triplet-normalized mutation frequency
+            ylab(TeX("$ log_2 \\; \\frac{SD \\; triplet-normalized \\; mutation \\; frequency}{Unique \\; triplet-normalized \\; mutation \\; frequency}$")) +
             xlab("Mutation event") +
             theme(
                 legend.position = "top",
                 plot.margin = margin(0.1, 1, 0.1, 0.1, unit = "cm"),
             ) +
             coord_cartesian(clip = "off")
+        spectra_plot
         #ggsave(glue("figures/seq_comp{IS_IGC}.pdf"), width = 12)
         #ggsave("tmp.pdf", width = 12)
 
 
 
-        sum(fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/{SD_var}_spectra.txt"))[, 2:97]) / 1e6
-        sum(fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/Unique_spectra.txt"))[, 2:97]) / 1e6
+        #sum(fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/{SD_var}_spectra.txt"))[, 2:97]) / 1e6
+        #sum(fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/Unique_spectra.txt"))[, 2:97]) / 1e6
 
         
         ########################################################################################
@@ -181,7 +220,7 @@ for( SD_var in c("SDnoIGC", "SD", "SDIGC") ){
             geom_point(size = 3) +
             scale_x_discrete(guide = guide_axis(n.dodge = 3)) +
             scale_color_viridis_d(direction = -1) +
-            ylab(TeX("$ log_2 \\; \\frac{SD \\; 3mer \\; composition}{Unique \\; 3mer \\; composition}$")) +
+            ylab(TeX("$ log_2 \\; \\frac{SD \\; composition}{Unique \\; composition}$")) +
             xlab("") +
             theme_minimal_grid() +
             theme(legend.position = "top")
@@ -193,9 +232,8 @@ for( SD_var in c("SDnoIGC", "SD", "SDIGC") ){
 
 
         spectra_wide <- spectra %>%
-            # filter(stratify == "Unique") %>%
+            mutate(target_percent = count/target_count) %>%
             group_by(stratify) %>%
-            # mutate(target_percent = count_adj) %>%
             mutate(target_percent = target_percent / sum(target_percent)) %>%
             ungroup() %>%
             merge(pop_small, by.x = "sample", by.y = "SampleID", all.x=TRUE) %>%
@@ -267,18 +305,23 @@ for( SD_var in c("SDnoIGC", "SD", "SDIGC") ){
         #    y=c(get_enrichment(spectra_table,"C.>G"), get_enrichment(spectra_table,"CG>T"))
         #)
         library(ggplot2)
+        my_x = 3
         spectra_plot_anno=spectra_plot + ggplot2::annotate("text",
-            x = 60, 
+            x = my_x, 
             y = 0.25,
             label = glue('.CG > T {get_enrichment(spectra_table,"CG>T")}')
         ) + ggplot2::annotate("text",
-            x = 60, 
+            x = my_x, 
             y = 0.35,
             label = glue('C > G {get_enrichment(spectra_table,"C.>G")}')
         ) + ggplot2::annotate("text",
-            x = 60, 
+            x = my_x, 
             y = 0.45,
             label = glue('(C,G) > (A,T) {get_enrichment(spectra_table,"(C|G).>(A|T)")}')
+        ) + ggplot2::annotate("text",
+            x = my_x, 
+            y = 0.55,
+            label = glue('(A,T) > (C,G) {get_enrichment(spectra_table,"(A|T).>(C|G)")}')
         )
 
         layout <- "
@@ -295,14 +338,25 @@ for( SD_var in c("SDnoIGC", "SD", "SDIGC") ){
         #ggsave("tmp.pdf", fig, width = 16 * scale, height = 16 * scale)
         ggsave(glue("figures/full-figs/mutyper{population}_{SD_var}.pdf"), fig, width = 16 * scale, height = 16 * scale)
     }
+
+    # save data
+    sheet = spectra_table %>%
+        arrange(-y) %>% 
+        mutate(`Fold change`=2**y) %>%
+        select(spectra,`Fold change`, SD, Unique) 
+    addWorksheet(wb = wb, sheetName = SD_var, gridLines = FALSE)
+    writeData(wb = wb, sheet = SD_var, x = sheet)
 }
+
+saveWorkbook(wb, "tables/Triplet_fold_increases.xlsx",  overwrite = TRUE)
+
+
 ```
 
 
 
 # some stats from the figs
 ```{r}
-t_sum
 
 spectra_table <- data.table(spectra_table)
 spectra_table[grepl(".CG>T", spectra), ] %>%
@@ -330,13 +384,7 @@ t.test(
 
 
 ```{r}
-spectra_table %>%
-  arrange(-y) %>% 
-  mutate(`Fold change`=2**y) %>%
-   select(spectra,`Fold change`, SD, Unique) %>%
-   openxlsx::write.xlsx(
-            file = "tables/Triplet_fold_increases{IS_IGC}.xlsx",
-            )
+
 
 get_enrichment <- function(spectra_table, grep_term){
     spectra_table %>%

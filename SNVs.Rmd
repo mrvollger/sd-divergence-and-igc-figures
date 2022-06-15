@@ -191,9 +191,12 @@ df <- fread(infile) %>%
     filter(hap != "GRCh38_2") %>%
     mutate(Sample = gsub("_(1|2)", "", hap)) %>%
     merge(pop, by.x = "Sample", by.y = "SampleID", all.x = T) %>%
-    mutate(Superpopulation = ifelse(is.na(Superpopulation), "EUR", as.character(Superpopulation)))
+    mutate(Superpopulation = ifelse(is.na(Superpopulation), "EUR", as.character(Superpopulation)))  %>%
+    as.data.table()
 
 unique(df[Superpopulation == "EUR"]$Sample)
+unique(df$region)
+
 
 #
 # make calculations minus IGC
@@ -205,6 +208,18 @@ if ("IGC" %in% df$region) {
     n_mbp <- sd$Mbp - igc$Mbp
     n_per_10_kbp <- 1e4 * n_snvs / (n_mbp * 1e6)
     sd$region <- "SD-IGC"
+    sd$`# SNVs` <- n_snvs
+    sd$`Mbp` <- n_mbp
+    sd$`# SNVs per 10 kbp` <- n_per_10_kbp
+    df <- rbind(df, sd)
+}
+if ("MergedIGC" %in% df$region) {
+    igc <- df[region == "MergedIGC", ]
+    sd <- copy(df[region == "SD", ])
+    n_snvs <- sd$`# SNVs` - igc$`# SNVs`
+    n_mbp <- sd$Mbp - igc$Mbp
+    n_per_10_kbp <- 1e4 * n_snvs / (n_mbp * 1e6)
+    sd$region <- "SD-All_IGC_Regions"
     sd$`# SNVs` <- n_snvs
     sd$`Mbp` <- n_mbp
     sd$`# SNVs per 10 kbp` <- n_per_10_kbp
@@ -222,8 +237,12 @@ if ("Acrocentric" %in% df$region) {
     sd$`# SNVs per 10 kbp` <- n_per_10_kbp
     df <- rbind(df, sd)
 }
-mean(df[region == "SD"]$`# SNVs per 10 kbp`)
-mean(df[region == "Unique"]$`# SNVs per 10 kbp`)
+
+df %>%
+    filter(grepl("SD|Unique", region) ) %>%
+    filter(!grepl("Exon|RM|Sat|Inter", region) ) %>%
+    group_by(region, Superpopulation) %>% filter(Superpopulation == "AFR") %>%
+    summarise( sum(`# SNVs`) / sum(Mbp) * 1/100 )
 (mean(df[region == "SD"]$`# SNVs per 10 kbp`) / mean(df[region == "Unique"]$`# SNVs per 10 kbp`))
 
 df$facet_row <- "SD"
