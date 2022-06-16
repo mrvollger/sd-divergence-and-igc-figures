@@ -12,10 +12,10 @@ library(glue)
 library(ggrepel)
 library(cowplot, help, pos = 2, lib.loc = NULL)
 library(ggforce, help, pos = 2, lib.loc = NULL)
+library(ggh4x)
 conflicted::conflict_prefer(name = "select", winner = "dplyr")
 conflict_prefer("filter", "dplyr")
 conflict_prefer("summarise", "dplyr")
-detach("package:tidylog")
 ```
 
 ```{r}
@@ -38,7 +38,7 @@ unique_targets <- fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/Uniq
 wb <- createWorkbook()
 
 for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
-    for( population in c("") ) { #, "_population"
+    for( population in c("", "_population") ) { #
         sd_targets <- fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/{SD_var}_targets.txt"))
         targets <- bind_rows(
             list(SD = sd_targets, Unique = unique_targets),
@@ -52,7 +52,7 @@ for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
                     TRUE ~ stratify 
                 ),
                 change_to = substr(spectra, 6,6),
-                change = paste(first_base, ">", change_to)
+                change = paste(mid_base, ">", change_to)
             ) %>% 
             merge(targets, by = c("first_three_bases", "stratify")) %>%
             # normalize counts so same # of counts happen in SD and unique 
@@ -104,7 +104,7 @@ for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
             ) %>%
             pivot_wider(
                 names_from = c("stratify"), values_from = "y",
-                id_cols = c("spectra", "first_base", "mid_base", "first_three_bases", "change", "change_to"),
+                id_cols = c("spectra", "first_base", "mid_base", "first_three_bases", "last_base","change", "change_to"),
             ) %>%
             mutate(
                 y = log2(SD / Unique),
@@ -115,9 +115,9 @@ for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
                 `# GC bases` = as.character(str_count(first_three_bases, "G|C"))
             ) %>%
             arrange(
-                `# GC bases`,
-                y,
-                mid_base,
+                #`# GC bases`,
+                #y,
+                #mid_base,
                 spectra,
             ) %>%
             mutate(
@@ -130,32 +130,39 @@ for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
             data.table() %>%
             ggplot(
                 aes(
-                    x = spectra,
+                    #x = spectra,
+                    #x=last_base,
+                    x=first_base,
                     y = y, label = spectra,
                     color = `# GC bases`,
                     # size=size,
                     # size = 3,
                 )
             ) + # , color = stratify)) +
+            theme_minimal_grid() +
             geom_point(size = 3) +
-            scale_x_discrete(guide = guide_axis(n.dodge = 6)) +
+            #geom_text(aes(label=last_base))+
+            scale_x_discrete(guide = guide_axis(n.dodge = 1)) +
             geom_text_repel(
-                data = . %>% filter(per <= 0.10 | per >= 0.90),
-                nudge_y = .05, # )/10,
-                nudge_x = -1,
+                data = . %>% filter(per <= 0.15 | per >= 0.85),
+                #nudge_y = .05, # )/10,
+                #nudge_x = -1,
                 force = 20,
+                min.segment.length = 0,
                 # direction = "y",
                 color = "black",
                 size = 3,
             ) +
-            theme_minimal_grid() +
-            facet_row(~change, scales = "free_x")+
+            facet_nested(.~  change + last_base, scales = "free_x", switch="x")+
             scale_color_viridis_d(direction = -1) +
+            scale_fill_viridis_d(direction = -1) +
             # triplet-normalized mutation frequency
             ylab(TeX("$ log_2 \\; \\frac{SD \\; triplet-normalized \\; mutation \\; frequency}{Unique \\; triplet-normalized \\; mutation \\; frequency}$")) +
             xlab("Mutation event") +
             theme(
                 legend.position = "top",
+                panel.spacing = unit(1.2, "pt"),
+                strip.background=element_rect(color="black"),
                 plot.margin = margin(0.1, 1, 0.1, 0.1, unit = "cm"),
             ) +
             coord_cartesian(clip = "off")
@@ -288,42 +295,6 @@ for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
         ########################################################################################
         ########################################################################################
 
-        grep_term="(A|T).>(C|G)"
-        get_enrichment <- function(spectra_table, grep_term){
-            z= spectra_table %>%
-            arrange(-y) %>% 
-            mutate(`Fold change`=2**y, z = SD/Unique  ) %>%
-            select(spectra,`Fold change`, SD, Unique) %>%
-            filter(grepl(grep_term, spectra)) %>%
-            summarise(
-                change=sum(SD)/sum(Unique),
-            )
-            round(z[[1]],3)
-        }
-
-        #anno = data.frame(  spectra=c("GCG>G","TCG>T"),
-        #    y=c(get_enrichment(spectra_table,"C.>G"), get_enrichment(spectra_table,"CG>T"))
-        #)
-        library(ggplot2)
-        my_x = 3
-        spectra_plot_anno=spectra_plot + ggplot2::annotate("text",
-            x = my_x, 
-            y = 0.25,
-            label = glue('.CG > T {get_enrichment(spectra_table,"CG>T")}')
-        ) + ggplot2::annotate("text",
-            x = my_x, 
-            y = 0.35,
-            label = glue('C > G {get_enrichment(spectra_table,"C.>G")}')
-        ) + ggplot2::annotate("text",
-            x = my_x, 
-            y = 0.45,
-            label = glue('(C,G) > (A,T) {get_enrichment(spectra_table,"(C|G).>(A|T)")}')
-        ) + ggplot2::annotate("text",
-            x = my_x, 
-            y = 0.55,
-            label = glue('(A,T) > (C,G) {get_enrichment(spectra_table,"(A|T).>(C|G)")}')
-        )
-
         layout <- "
         AAAABBBBBB
         AAAACCCCCC
@@ -331,7 +302,7 @@ for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
         DDDDDDDDDD
         "
         library(patchwork)
-        fig <- plot.timing + target_plot + pca_plot + spectra_plot_anno + # plot.timing +
+        fig <- plot.timing + target_plot + pca_plot + spectra_plot + # plot.timing +
             plot_layout(design = layout) +
             plot_annotation(tag_levels = "a") & theme(plot.tag = element_text(size = 24))
         scale <- 0.8
@@ -346,6 +317,38 @@ for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
         select(spectra,`Fold change`, SD, Unique) 
     addWorksheet(wb = wb, sheetName = SD_var, gridLines = FALSE)
     writeData(wb = wb, sheet = SD_var, x = sheet)
+
+
+    grep_term="(A|T).>(C|G)"
+    get_enrichment <- function(spectra_table, grep_term){
+        z= spectra_table %>%
+        arrange(-y) %>% 
+        mutate(`Fold change`=2**y, z = SD/Unique  ) %>%
+        select(spectra,`Fold change`, SD, Unique) %>%
+        filter(grepl(grep_term, spectra)) %>%
+        summarise(
+            change=sum(SD)/sum(Unique),
+        )
+        round(z[[1]],3)
+    }
+
+    groups = data.table(
+        change=c(
+            ".(A|T).>(C|G)",
+            ".(C|G).>(A|T)",
+            ".CG>T",
+            ".C.>G",
+            ".C.>.",
+            ".A.>."
+            )
+        ) %>% 
+        group_by(change) %>%
+        mutate(
+            `Fold change` = get_enrichment(spectra_table, change),
+            #change = gsub("\\.", "N", change)
+        ); groups
+    addWorksheet(wb = wb, sheetName = glue("{SD_var}{population}_groups"), gridLines = FALSE)
+    writeData(wb = wb, sheet = glue("{SD_var}{population}_groups"), x = groups)
 }
 
 saveWorkbook(wb, "tables/Triplet_fold_increases.xlsx",  overwrite = TRUE)
