@@ -37,8 +37,8 @@ unique_targets <- fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/Uniq
 # for saving results 
 wb <- createWorkbook()
 
-for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
-    for( population in c("", "_population") ) { #
+for( population in c("", "_population") ) { #
+    for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
         sd_targets <- fread(glue("data/mutyper-results{IS_IGC}/spectra/stratify/{SD_var}_targets.txt"))
         targets <- bind_rows(
             list(SD = sd_targets, Unique = unique_targets),
@@ -69,7 +69,7 @@ for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
             ) %>%
             as.data.table()
         spectra
-        print( spectra %>% group_by(stratify) %>% summarise(sum(count)/1e6,sum(target_count)/1e6) )
+        print( spectra %>% group_by(stratify) %>% summarise(sum(count)/1e6,sum(target_count)/1e6, sum(count)/sum(target_count) ) )
         table(spectra$stratify)
 
         grouped_spectra <- spectra %>%
@@ -294,61 +294,111 @@ for( SD_var in c("SD", "SDnoIGC", "SDIGC") ){
         ########################################################################################
         ########################################################################################
         ########################################################################################
+        mutable_triplets.df = spectra %>% 
+            group_by(stratify, first_three_bases, target_count) %>%
+            summarise(count = sum(count)) %>%
+            #filter(stratify=="Unique") %>%
+            group_by(stratify) %>%
+            mutate(
+                triplet_frac = target_count / sum(target_count),
+                mutable = count / target_count
+                ) %>%
+            arrange(-mutable) %>%
+            pivot_wider(
+                names_from = c("stratify"), values_from = c("mutable", "triplet_frac"),
+                id_cols = c("first_three_bases"),
+            ) %>%
+            mutate(
+                x = mutable_Unique,
+                y = log2(triplet_frac_SD/triplet_frac_Unique),
+                y = triplet_frac_SD / triplet_frac_Unique,
+                label = paste(first_three_bases, round(y,2)),
+                CpG = substr(first_three_bases,2,3) == "CG"
+            ) 
+        mutable_triplets = mutable_triplets.df %>%
+            #filter(!CpG) %>%
+            ggplot(aes(x=x,y=y, label=first_three_bases)) +
+            geom_text_repel(min.segment.length=0) +
+            geom_smooth(method="lm", se=F, formula = y~x) +
+            geom_point() +
+            stat_cor(method = "pearson") + 
+            #stat_regline_equation(label.y = 30) + 
+            scale_x_continuous("Frequency of a mutation in unique sequence for all triplet contexts", trans="log10") +
+            annotation_logticks(side="b")+
+            ylab(TeX("$ \\; \\frac{SD \\; triplet \\; composition}{Unique \\; triplet \\; composition}$")) +
+            theme_minimal_grid();# ggsave("tmp.pdf")
+        ########################################################################################
+        ########################################################################################
+        ########################################################################################
 
         layout <- "
-        AAAABBBBBB
-        AAAACCCCCC
+        AAAAABBBBB
+        CCCCCBBBBB
         DDDDDDDDDD
         DDDDDDDDDD
         "
         library(patchwork)
-        fig <- plot.timing + target_plot + pca_plot + spectra_plot + # plot.timing +
+        #fig <- plot.timing + target_plot + pca_plot + spectra_plot + # plot.timing +
+        fig <- target_plot + mutable_triplets + pca_plot + spectra_plot + # plot.timing +
             plot_layout(design = layout) +
             plot_annotation(tag_levels = "a") & theme(plot.tag = element_text(size = 24))
         scale <- 0.8
         #ggsave("tmp.pdf", fig, width = 16 * scale, height = 16 * scale)
         ggsave(glue("figures/full-figs/mutyper{population}_{SD_var}.pdf"), fig, width = 16 * scale, height = 16 * scale)
-    }
 
-    # save data
-    sheet = spectra_table %>%
-        arrange(-y) %>% 
-        mutate(`Fold change`=2**y) %>%
-        select(spectra,`Fold change`, SD, Unique) 
-    addWorksheet(wb = wb, sheetName = SD_var, gridLines = FALSE)
-    writeData(wb = wb, sheet = SD_var, x = sheet)
+        ########################################################################################
+        ########################################################################################
+        ########################################################################################
 
+        # save data
+        sheet = spectra_table %>%
+            arrange(-y) %>% 
+            mutate(`Fold change`=2**y) %>%
+            select(spectra,`Fold change`, SD, Unique) 
+        ws_name = glue("{SD_var}{population}")
+        addWorksheet(wb = wb, sheetName = ws_name, gridLines = FALSE)
+        writeData(wb = wb, sheet = ws_name, x = sheet)
 
-    grep_term="(A|T).>(C|G)"
-    get_enrichment <- function(spectra_table, grep_term){
-        z= spectra_table %>%
-        arrange(-y) %>% 
-        mutate(`Fold change`=2**y, z = SD/Unique  ) %>%
-        select(spectra,`Fold change`, SD, Unique) %>%
-        filter(grepl(grep_term, spectra)) %>%
-        summarise(
-            change=sum(SD)/sum(Unique),
-        )
-        round(z[[1]],3)
-    }
-
-    groups = data.table(
-        change=c(
-            ".(A|T).>(C|G)",
-            ".(C|G).>(A|T)",
-            ".CG>T",
-            ".C.>G",
-            ".C.>.",
-            ".A.>."
+        grep_term="(A|T).>(C|G)"
+        get_enrichment <- function(spectra_table, grep_term){
+            z= spectra_table %>%
+            arrange(-y) %>% 
+            mutate(`Fold change`=2**y, z = SD/Unique  ) %>%
+            select(spectra,`Fold change`, SD, Unique) %>%
+            filter(grepl(grep_term, spectra)) %>%
+            summarise(
+                change=sum(SD)/sum(Unique),
             )
-        ) %>% 
-        group_by(change) %>%
-        mutate(
-            `Fold change` = get_enrichment(spectra_table, change),
-            #change = gsub("\\.", "N", change)
-        ); groups
-    addWorksheet(wb = wb, sheetName = glue("{SD_var}{population}_groups"), gridLines = FALSE)
-    writeData(wb = wb, sheet = glue("{SD_var}{population}_groups"), x = groups)
+            round(z[[1]],3)
+        }
+
+        groups = data.table(
+            change=c(
+                ".(A|T).>(C|G)",
+                ".(C|G).>(A|T)",
+                ".CG>T",
+                ".C.>G",
+                ".C.>.",
+                ".A.>.",
+                "...>A",
+                "...>T",
+                "...>C",
+                "...>G"
+                )
+            ) %>% 
+            group_by(change) %>%
+            mutate(
+                `Fold change` = get_enrichment(spectra_table, change),
+                #change = gsub("\\.", "N", change)
+            ); groups
+        ws_name = glue("{SD_var}{population}_groups")
+        print(ws_name)
+        addWorksheet(wb = wb, sheetName = ws_name, gridLines = FALSE)
+        writeData(wb = wb, sheet = ws_name, x = groups)
+
+
+        #ggsave("tmp.pdf")
+    }
 }
 
 saveWorkbook(wb, "tables/Triplet_fold_increases.xlsx",  overwrite = TRUE)

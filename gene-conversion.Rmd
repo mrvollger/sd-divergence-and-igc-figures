@@ -557,7 +557,7 @@ sum_df = bind_rows(
         `Ave. # of supporting SNVs`=mean(`# of supporting SNVs`),
         `Ave. # of supporting SNVs per kbp`=mean(`# of supporting SNVs`/length * 1000),
         `Ave. length`=mean(`length`),
-        `Max length` = max(`length`),
+        `Max IGC length` = max(`length`),
         count = n()
     ) %>%
     arrange(Category, Superpopulation, Haplotype) %>%
@@ -587,7 +587,7 @@ igc_in_genes <- function(gene_bed, gene_based = TRUE, df = IGC) {
         filter(geneType == "protein_coding") %>%
         group_by(chr, gene, strand) %>%
         mutate(gene_length = end - start) %>%
-        slice(which.max(gene_length)) %>%
+        dplyr::slice(which.max(gene_length)) %>%
         mutate(
             gene_chr = chr,
             gene_start = start,
@@ -622,6 +622,14 @@ igc_in_genes <- function(gene_bed, gene_based = TRUE, df = IGC) {
     gene_donor$status <- "Donor"
     gene_igc <- rbind(gene_acceptor, gene_donor)
 
+    if(FALSE){
+        no_hits = grouped_genes[!unique(c(queryHits(o), queryHits(o2))), ..gene_cols ]
+        length(unique(no_hits$gene_id))+length(unique(gene_igc$gene_id))
+        length(unique(grouped_genes$gene_id))        
+        no_hits$status <- "NoIGC"
+        gene_igc = rbind(gene_igc, no_hits, fill=TRUE)
+    }
+
     if (gene_based) {
         out_df <- gene_igc %>%
             group_by(
@@ -633,7 +641,7 @@ igc_in_genes <- function(gene_bed, gene_based = TRUE, df = IGC) {
             dplyr::select(-score, -strand, -thickStart, -thickEnd, -color) %>%
             summarise(
                 N_IGC = n(),
-                support = sum(name),
+                support = sum(name, na.rm=T),
                 average_support = support / N_IGC,
                 average_length = mean(reference_end - reference_start),
             ) %>%
@@ -767,36 +775,22 @@ pli_plot <- cowplot::plot_grid(
 ggsave("figures/igc_pli.pdf", plot = pli_plot, height = 8, width = 20)
 ggsave("tmp.pdf", plot = pli_plot, height = 8, width = 20)
 
-``` 
 
 
+##################################################################################33
+# pli vs # of acceptor events
 
-```{r}
-
-# paf <- fread("/net/eichler/vol26/projects/assembly_breaks/nobackups/asm-to-reference-alignment/tmp.all.paf")
-
-paf$len <- (paf$V9 - paf$V8) / 1e6
-paf <- paf[order(paf$len), ]
-paf$cum.pct <- with(paf, cumsum(len) / sum(len))
-len <-
-    # ggplot(paf, aes(x = len, weight = len)) + geom_histogram(bins = 100) +
-    ggplot(paf, aes(x = len, cum.pct)) +
-    # geom_line(aes(y = 1 - ..y..), stat = "ecdf") +
-    geom_line() +
-    scale_x_continuous(trans = "log10", label = comma) +
-    annotation_logticks(side = "b") +
-    coord_cartesian(xlim = c(0.01, NA)) +
+igc_exons %>%
+    group_by(gene_id, gene_name, pLI) %>%
+    summarise(N_IGC_Acceptor = sum(N_IGC_Acceptor)) %>%
+    #filter(N_IGC_Acceptor > 0) %>%
+    ggplot(aes(x=pLI, y=log10(N_IGC_Acceptor))) +
+    geom_point()+
+    geom_smooth(method="lm")+
+    stat_cor()+
     theme_minimal_grid()
-ggsave("tmp.pdf", plot = len, height = 20, width = 20)
-
-sum(paf[len > 1]$len) / sum(paf$len)
-sum(paf[len > 0.5]$len) / sum(paf$len)
-sum(paf[len > .25]$len) / sum(paf$len)
-sum(paf[len > .125]$len) / sum(paf$len)
-```
-
-
-
+ggsave("tmp.pdf")
+``` 
 
 
 ## Donor vs acceptor across the genome, round 2
@@ -1289,323 +1283,10 @@ system(glue("pdfunite figures/genes/*min_snv_{min_snv}*.pdf figures/igc_all_gene
 print("hi")
 ```
 
-
-
-```{r, make igc vcf}
-library(splitstackshape)
-my_cur_cols <- c(acceptor_columns, c("sample_hap", "igc_count"))
-
-my_vcf_header <- "##fileformat=VCFv4.2
-##fileDate=20220315
-##source=myIGCprogram
-##contig=<ID=chr1,length=248387328>
-##contig=<ID=chr2,length=242696752>
-##contig=<ID=chr3,length=201105948>
-##contig=<ID=chr4,length=193574945>
-##contig=<ID=chr5,length=182045439>
-##contig=<ID=chr6,length=172126628>
-##contig=<ID=chr7,length=160567428>
-##contig=<ID=chr8,length=146259331>
-##contig=<ID=chr9,length=150617247>
-##contig=<ID=chr10,length=134758134>
-##contig=<ID=chr11,length=135127769>
-##contig=<ID=chr12,length=133324548>
-##contig=<ID=chr13,length=113566686>
-##contig=<ID=chr14,length=101161492>
-##contig=<ID=chr15,length=99753195>
-##contig=<ID=chr16,length=96330374>
-##contig=<ID=chr17,length=84276897>
-##contig=<ID=chr18,length=80542538>
-##contig=<ID=chr19,length=61707364>
-##contig=<ID=chr20,length=66210255>
-##contig=<ID=chr21,length=45090682>
-##contig=<ID=chr22,length=51324926>
-##contig=<ID=chrX,length=154259566>
-##contig=<ID=chrM,length=16569>
-##contig=<ID=chrY,length=57227415>
-##FILTER=<ID=PASS,Description=\"PASSING\">
-##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">"
-## INFO=<ID=LN,Number=1,Type=Integer,Description=\"Length of IGC\">
-cat(my_vcf_header)
-
-min_snv <- 0
-igc_vcf <- merged_df[name >= min_snv, ..my_cur_cols] %>%
-    as.tibble() %>%
-    dplyr::rename(
-        `#CHROM` = `#reference_name.liftover`,
-        POS = reference_start.liftover,
-        END = reference_end.liftover,
-    ) %>%
-    mutate(
-        POS = round(POS),
-        END = round(END),
-        ID = paste(`#CHROM`, POS, END, "IGC", sep = "-"),
-        POS = round((POS + END) / 2),
-        REF = "A",
-        ALT = "T",
-        QUAL = 30,
-        FILTER = "PASS",
-        INFO = ".", # paste0("LN=", END - POS),
-        FORMAT = "GT"
-    ) %>%
-    dplyr::select(
-        -igc_count,
-        -END,
-    ) %>%
-    select(-sample_hap, sample_hap)
-# CHROM POS ID REF ALT QUAL FILTER INFO FORMAT
-
-
-tmp <- igc_vcf %>%
-    # head(1000) %>%
-    cSplit_e(
-        "sample_hap",
-        sep = ";", mode = "binary",
-        type = "character", fill = ".", drop = TRUE
-    ) %>%
-    rename_with(~ str_remove(., "sample_hap_")) %>%
-    mutate(
-        CHM1_2 = rep(".", nrow(.)),
-        GRCh38_2 = rep(".", nrow(.))
-    ) %>%
-    data.table()
-# %>%unite("NA21309", NA21309_1:NA21309_2, remove = TRUE, sep = "|")
-tmp2 <- tmp
-for (my_sample in unique(IGC$Sample)) {
-    # if (my_sample %in% c("GRCh38", "CHM1")) { next}
-    sm1 <- paste0(my_sample, "_1")
-    sm2 <- paste0(my_sample, "_2")
-    print(my_sample)
-    tmp2 <- tmp2 %>%
-        unite(!!my_sample, c(sm1, sm2), remove = TRUE, sep = "|")
-}
-igc_vcf <- tmp2 %>% arrange(`#CHROM`, POS)
-
-igc_vcf[CHM1 == "1|.", ]$CHM1 <- "1|1"
-igc_vcf[GRCh38 == "1|.", ]$GRCh38 <- "1|1"
-
-write(my_vcf_header, file = "data/gene-conversion/IGC.vcf")
-fwrite(igc_vcf,
-    file = "data/gene-conversion/IGC.vcf",
-    sep = "\t", quote = FALSE, row.names = FALSE, append = TRUE, col.names = TRUE
-)
-```
-
 ```{R}
 system("module load miniconda/4.9.2  bcftools/1.12 && ~mvollger/assembly_breaks/asm-to-reference-alignment/workflow/scripts/add-missing-hom-genotypes.py data/gene-conversion/IGC.vcf /net/eichler/vol26/projects/assembly_breaks/nobackups/asm-to-reference-alignment/human_nhp_vcf_merge/all_hap_coverages.bed | bcftools sort | bgzip -@ 30 > data/gene-conversion/IGC.fixed.gt.vcf.gz")
 system("module load miniconda/4.9.2  bcftools/1.12 && bcftools index data/gene-conversion/IGC.fixed.gt.vcf.gz")
 ```
-
-
-```{r}
-min_snv <- 2
-min_count <- 2
-igc_vcf[, c(1, 2, 3, 4)]
-
-igc_recur_genes <- c(
-    "F8",
-    "LPA",
-    "CYP2A6", "CYP3A", "CYP21A2",
-    # "HERC",
-    "OPN1LW",
-    # "HBG1",
-    "TCAF1", "TCAF2C", "TCAF2",
-    # "LPA",
-    # "CROCC",
-    "NEB",
-    # "THOC3",
-    "RPBD1", "RPUSD1",
-    # "GOLGA2",
-    "RHD", "RHCE",
-    "CYP2D6", "CYP2D7", "CYP2D8",
-    "SRGAP2C", "SRGAP2B", "SRGAP2D", "SRGAP2",
-    "NOTCH2NLA", "NOTCH2NLB", "NOTCH2NLC", "NOTCH2NLR", "NOTCH2",
-    "ARHGAP11A", "ARHGAP11B", "ARHGAP11",
-    "C4B"
-)
-igc_recur_pat <- paste0(paste0("(", paste(igc_recur_genes, collapse = "|")), ")")
-
-clint_cov <- fread("data/callable_clint/Clint_v0.15.2_1_callable_regions.bed.gz") %>%
-    rbind(fread("data/callable_clint/Clint_v0.15.2_2_callable_regions.bed.gz"))
-
-
-
-flank <- 50e3
-max_pad <- 10e3
-colnames(merged_df)
-igc_recur_df <- merged_df %>%
-    filter(grepl(igc_recur_pat, acceptor_exon_names) | grepl("LPA", acceptor_gene_names)) %>%
-    filter(name >= min_snv) %>%
-    filter(igc_count >= min_count) %>%
-    mutate(gene_of_interest = str_extract(acceptor_gene_names, igc_recur_pat)) %>%
-    # mutate(gene_of_interest = case_when(
-    #    is.na(gene_of_interest) ~ str_extract(donor_gene_names, igc_gene_pat),
-    #    TRUE ~ gene_of_interest
-    # )) %>%
-    # select(gene_of_interest) %>%
-    mutate(
-        chrm = `#reference_name.liftover`,
-        pad = round(pmin(reference_end.liftover - reference_start.liftover, max_pad)),
-        st1 = round(reference_start.liftover - pad - flank),
-        en1 = round(reference_start.liftover - pad),
-        st2 = round(reference_end.liftover + pad),
-        en2 = round(reference_end.liftover + pad + flank),
-        ID = paste(chrm, round(reference_start.liftover), round(reference_end.liftover), "IGC", sep = "-"),
-        ave_support = name,
-        # group=group,
-    ) %>%
-    filter(!(gene_of_interest == "F8" & chrm != "chrX")) %>%
-    select(chrm, st1, en1, st2, en2, ID, gene_of_interest, igc_count, ave_support, pad, group) %>%
-    group_by(gene_of_interest) %>%
-    # slice(which.max(ave_support * igc_count)) %>%
-    slice_max(ave_support * igc_count, n = 2) %>%
-    mutate(flank_size = flank) %>%
-    arrange(chrm, st1) %>%
-    data.table()
-igc_recur_df
-igc_recur_df$has_chimp <- overlaps(igc_recur_df, clint_cov, mincov = 0.0)
-
-stopifnot(
-    sum(igc_vcf$ID %in% igc_recur_df$ID) == nrow(igc_recur_df)
-)
-
-fwrite(igc_recur_df,
-    file = "data/gene-conversion/IGC_recurrance_targets.tbl",
-    sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE
-)
-
-igc_recur_df %>%
-    openxlsx::write.xlsx(
-        file = "tables/IGC-recurance-targets.xlsx",
-    )
-igc_recur_df %>% mutate(length = (st2 - en1) / 1e3)
-```
-
-
-
-
-
-# add SD counts 
-```{r}
-min_snv <- 10
-cur_igc <- igc[name >= min_snv, ]
-igc.gr <- toGRanges(igc[name >= min_snv, ..acceptor_columns])
-igc.gr <- as(coverage(igc.gr), "GRanges")
-igc.gr <- igc.gr[igc.gr$score > 0]
-sd.gr <- c(toGRanges(SEDEF_V1.1)) # ), toGRanges(SEDEF_V1.1_LOWID))
-
-length(igc.gr)
-dim(cur_igc)
-
-sd_covs <- as(coverage(sd.gr), "GRanges") %>%
-    as.data.table() %>%
-    group_by(score) %>%
-    filter(score > 0) %>%
-    summarise(sd_bp = sum(width)) %>%
-    mutate(sd_cn = score) %>%
-    select(-score) %>%
-    arrange(-sd_bp) %>%
-    data.table()
-
-length(igc.gr)
-length(sd.gr)
-SEDEF_V1.1$subjectHits <- 1:nrow(SEDEF_V1.1)
-cur_igc$queryHits <- 1:nrow(cur_igc)
-
-o_sd_igc <- findOverlaps(igc.gr, sd.gr, minoverlap = 500)
-sd_igc <- cbind(
-    cur_igc[queryHits(o_sd_igc)],
-    SEDEF_V1.1[subjectHits(o_sd_igc), c("fracMatch", "fracMatchIndel", "matchB")]
-)
-cur_igc_names <- colnames(cur_igc)
-sd_igc %>%
-    group_by_at(cur_igc_names) %>%
-    summarise(
-        max_sd_per = max(fracMatch),
-        max_sd_len = max(matchB)
-    )
-
-# as.data.table() %>%
-# merge(SEDEF_V1.1, by = "subjectHits") %>%
-# merge(cur_igc, by = "subjectHits") %>%
-# data.table()
-
-sd_cn() <- findOverlaps(igc.gr, sd.gr, minoverlap = 500) %>%
-    as.data.table() %>%
-    group_by(queryHits) %>%
-    summarise(sd_cn = n())
-
-sd_cn.df <- as.data.table(igc.gr)
-sd_cn.df$sd_cn <- NA
-sd_cn.df$sd_cn[sd_cn$queryHits] <- sd_cn$sd_cn
-sd_cn.df$igc_count <- sd_cn.df$score
-sd_cn.df <- sd_cn.df %>%
-    merge(sd_covs, by = "sd_cn", all.x = T) %>%
-    mutate(cor_igc_count = igc_count / sd_bp) %>%
-    mutate(weight = width * igc_count / sd_bp) %>%
-    data.table()
-dim(sd_cn.df)
-dim(sd_cn)
-length(igc.gr)
-sum(sd_cn.df[is.na(sd_cn.df$sd_cn)]$width) / 1e6
-sum(sd_cn.df[!is.na(sd_cn.df$sd_cn)]$width) / 1e6
-```
-
-# igc bootstrap regions
-```{r}
-# system("./make_bootstrap_igc.sh 100 > data/bootstrap.igc.tbl.gz")
-igc_boot <- fread("data/bootstrap.igc.tbl.gz")
-
-igc_boot$sd_cn <- countOverlaps(toGRanges(igc_boot), sd.gr)
-igc_boot %>%
-    group_by(bootstrap) %>%
-    mutate(
-        len = en - st,
-        cor = mean(len) * (len * sd_cn) / sum(len)
-    ) %>%
-    summarise(mean(cor), median(cor))
-
-i <- intersect(toGRanges(igc_boot), GenomicRanges::reduce(sd.gr))
-sum(width(i)) / 1e6
-sum(width(toGRanges(igc_boot))) / (10e6)
-```
-
-
-```{r}
-# add observations for each bp
-sd_cn.df.2 <- sd_cn.df[, list(igc_count = rep(igc_count, width), sd_cn = rep(sd_cn, width))]
-dim(sd_cn.df.2) / 1e6
-
-z <- sd_cn.df %>%
-    filter(sd_cn > 0 & sd_bp > 1e5) %>%
-    # sample_n(1e5) %>%
-    # head(10000) %>%
-    # filter(width>100) %>%
-    # mutate(cat = name >= 10) %>%
-    ggplot(aes(x = sd_cn, weight = weight)) +
-    # scale_y_continuous("SD copy-number", trans = "log10") +
-    # scale_x_continuous("IGC count", trans = "log10") +
-    # geom_hex(aes(fill = stat(log10(count))), bins = 40) +
-    geom_bar() +
-    # geom_density2d() +
-    # geom_point(alpha = 0.1, size = 0.1) +
-    # stat_cor(method = "pearson") +
-    # geom_smooth(method = "lm", se = F, alpha = 0.2, size = 1) +
-    scale_fill_viridis_c("count", option = "magma") +
-    # facet_col(~cat, scales = "free") +
-    theme_minimal_grid()
-ggsave("tmp.pdf")
-
-t <- sd_covs %>%
-    ggplot(aes(x = sd_cn, weight = sd_bp)) +
-    scale_y_continuous(trans = "log10", label = comma) +
-    # scale_x_continuous(trans = "log10") +
-    geom_bar()
-
-ggsave("tmp.pdf")
-```
-
-
 
 # phil samples names
 ```{r}
