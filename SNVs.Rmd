@@ -77,14 +77,12 @@ kpPlotDensity(kp,
 dev.off()
 ```
 
-
-
 ```{r}
 library(ggbeeswarm)
 f <- "data/sd-divergence-results/annotation/annotation_sizes.tbl"
 anno_sizes <- fread(f, col.names = c("Sample", "Region", "bp")) %>%
     filter(Region == "SD_size" | Region == "Unique_size") %>%
-    filter( !(Sample %in% c("CHM1_2", "GRCh38_2")) ) %>%
+    filter(!(Sample %in% c("CHM1_2", "GRCh38_2"))) %>%
     separate(Sample, c("Sample", "Hap"), sep = "_") %>%
     separate(Region, c("Region", "z"), sep = "_") %>%
     mutate(Mbp = as.numeric(bp) / 1e6) %>%
@@ -112,8 +110,6 @@ anno_sizes.p <- anno_sizes %>%
 anno_sizes.p
 ggsave(file = "figures/annotation_sizes.pdf", height = 6, width = 8)
 ```
-
-
 
 ```{r}
 
@@ -182,7 +178,6 @@ p2 <- p +
 ggsave("figures/snv_ecdf_per_hap.pdf", width = 8, height = 5, plot = p2)
 ```
 
-
 ```{r, snv per 10 kbp violin}
 infile <- "data/sd-divergence-results/tables/snv_per_kbp.tbl"
 
@@ -191,13 +186,13 @@ df <- fread(infile) %>%
     filter(hap != "GRCh38_2") %>%
     mutate(Sample = gsub("_(1|2)", "", hap)) %>%
     merge(pop, by.x = "Sample", by.y = "SampleID", all.x = T) %>%
-    mutate(Superpopulation = ifelse(is.na(Superpopulation), "EUR", as.character(Superpopulation)))  %>%
+    mutate(Superpopulation = ifelse(is.na(Superpopulation), "EUR", as.character(Superpopulation))) %>%
     as.data.table()
 
 unique(df[Superpopulation == "EUR"]$Sample)
 unique(df$region)
 
-
+table(df$region)
 #
 # make calculations minus IGC
 #
@@ -239,10 +234,11 @@ if ("Acrocentric" %in% df$region) {
 }
 
 df %>%
-    filter(grepl("SD|Unique", region) ) %>%
-    filter(!grepl("Exon|RM|Sat|Inter", region) ) %>%
-    group_by(region, Superpopulation) %>% filter(Superpopulation == "AFR") %>%
-    summarise( sum(`# SNVs`) / sum(Mbp) * 1/100 )
+    filter(grepl("SD|Unique", region)) %>%
+    filter(!grepl("Exon|RM|Sat|Inter", region)) %>%
+    group_by(region, Superpopulation) %>%
+    filter(Superpopulation == "AFR") %>%
+    summarise(sum(`# SNVs`) / sum(Mbp) * 1 / 100)
 (mean(df[region == "SD"]$`# SNVs per 10 kbp`) / mean(df[region == "Unique"]$`# SNVs per 10 kbp`))
 
 df$facet_row <- "SD"

@@ -1,5 +1,7 @@
 ```{r}
 library(gridExtra)
+conflict_prefer("group_by", "dplyr")
+conflict_prefer("mutate", "dplyr")
 tmrca <- c(
     "chrom", "start", "end", "TMRCA", "del_frac",
     "AT", "GC",
@@ -75,6 +77,7 @@ plot.timing <- cowplot::plot_grid(
 )
 ggsave("tmp.pdf")
 plot.timing <- z
+ggsave("figures/TMRCA.pdf")
 
 wilcox.test(
     time.df[Region == "SD"]$TMRCA,
@@ -85,4 +88,3 @@ wilcox.test(
 
 mean(time.df[Region == "SD"]$TMRCA) / mean(time.df[Region == "Unique"]$TMRCA)
 ```
-
