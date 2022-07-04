@@ -591,72 +591,163 @@ fread("data/mutyper-results-no-igc/spectra/spectra.txt") %>%
 ```
 
 
+# transitions vs transversions 
+```{r}
+data <- "count ref       alt
+ 844801 A       C
+3039573 A       G
+ 690172 A       T
+ 851018 C       A
+1003546 C       G
+3097834 C       T
+3039966 G       A
+1021253 G       C
+ 876990 G       T
+ 694095 T       A
+3051903 T       C
+ 871036 T       G"
+
+sd_ts_tv <- fread(data)
+
+data <- "count ref       alt
+10389503 A      C
+41930445 A      G
+9027918 A       T
+10502321 C      A
+10828922 C      G
+41922995 C      T
+41893989 G      A
+10851334 G      C
+10442272 G      T
+9055724 T       A
+41906837 T      C
+10463409 T      G"
+
+u_ts_tv <- fread(data)
+
+transitions <- c("AG", "GA", "CT", "TC")
+
+ts_tv <- bind_rows(
+    list(SD = sd_ts_tv, Unique = u_ts_tv),
+    .id = "stratify"
+) %>% mutate(
+    z = paste(ref, alt, sep = "")
+)
+ts_tv$type <- "Transversion"
+ts_tv$type[ts_tv$z %in% transitions] <- "Transition"
+
+ts_tv
+```
 
 ```{r}
-library(tidyverse)
-library(data.table)
-library(stats)
-library(compositions)
-
-SD_var <- "SD"
-f1 <- glue("data/mutyper-results{IS_IGC}/spectra/stratify/Unique_targets.txt")
-f2 <- glue("data/mutyper-results{IS_IGC}/spectra/stratify/{SD_var}_targets.txt")
-f3 <- glue("data/mutyper-results{IS_IGC}/spectra/stratify/Unique_spectra.txt")
-f4 <- glue("data/mutyper-results{IS_IGC}/spectra/stratify/{SD_var}_spectra.txt")
-
-f1 <- "https://eichlerlab.gs.washington.edu/help/mvollger/share/ksfs/Unique_targets.txt"
-f2 <- "https://eichlerlab.gs.washington.edu/help/mvollger/share/ksfs/SD_targets.txt"
-f3 <- "https://eichlerlab.gs.washington.edu/help/mvollger/share/ksfs/Unique_spectra.txt"
-f4 <- "https://eichlerlab.gs.washington.edu/help/mvollger/share/ksfs/SD_spectra.txt"
-
-unique_targets <- fread(f1)
-sd_targets <- fread(f2)
-targets <- bind_rows(
-    list(SD = sd_targets, Unique = unique_targets),
-    .id = "stratify"
-)
-colnames(targets)[2:3] <- c("first_three_bases", "target_count")
-
-unique_spectra <- fread(f3)
-sd_spectra <- fread(f4)
-spectra <- bind_rows(
-    list(SD = sd_spectra, Unique = unique_spectra),
-    .id = "stratify"
-)
-
-spectra_long <- spectra %>%
-    pivot_longer(!c("stratify", "sample"), names_to = "spectra", values_to = "count") %>%
-    mutate(
-        first_three_bases = substr(spectra, 1, 3)
+ts_tv_ratio <- ts_tv %>%
+    group_by(type, stratify) %>%
+    summarise(
+        frac = sum(count)
     ) %>%
-    merge(targets, by = c("first_three_bases", "stratify")) %>%
-    group_by(stratify) %>%
-    mutate(
-        target_percent = count / target_count,
-        target_percent_norm = target_percent / sum(target_percent)
-    ) %>%
-    data.table()
-sum(spectra_long$target_percent_norm) == 2
-
-
-spectra_wide <- spectra_long %>%
     pivot_wider(
-        id_cols = c("stratify", "sample"),
-        names_from = c("spectra"),
-        values_from = c("target_percent_norm")
+        id_cols = c("stratify", "type"),
+        names_from = c("type"),
+        values_from = c("frac")
     ) %>%
+    mutate(`ts/tv` = Transition / Transversion) %>%
     data.table()
 
-spectra_mat <- clr(spectra_wide[, -c("stratify", "sample")])
+chisq.test(
+    matrix(unlist(ts_tv_ratio[, c("Transition", "Transversion")]), nrow = 2, ncol = 2)
+)
+ts_tv_ratio
+```
 
-spectra_pca <- prcomp(spectra_mat, scale. = TRUE)
-# sort(spectra_pca$rotation[, 1])
-
-autoplot(spectra_pca,
-    data = spectra_wide,
-    shape = "stratify",
-) +
-    theme(
-        legend.position = "top"
+# allele frequencies
+```{r}
+maf_counts <- HPRC_SNVS %>%
+    # sample_n(1e6) %>%
+    filter(anno_SD == TRUE | anno_Unique == TRUE) %>%
+    group_by(anno_SD, ID) %>%
+    summarise(
+        allele_count = n()
+    ) %>%
+    group_by(allele_count, anno_SD) %>%
+    summarise(
+        frac = n()
     )
 ```
+
+```{r}
+
+z <- maf_counts %>%
+    mutate(
+        type = case_when(anno_SD == TRUE ~ "SD", TRUE ~ "Unique"),
+        allele_count = case_when(
+            allele_count <= 50 ~ allele_count,
+            TRUE ~ as.integer(101) - allele_count
+        ),
+        # allele_count = cut(allele_count ,
+        #    breaks = seq(1, 51, 2), include.lowest = TRUE
+        # )
+    ) %>%
+    group_by(type, allele_count) %>%
+    summarise(frac = sum(frac)) %>%
+    group_by(type) %>%
+    mutate(frac = frac / sum(frac)) %>%
+    ggplot(aes(x = allele_count, y = frac, fill = type)) +
+    # geom_histogram(bins = seq(1,51,2), stat = "identity") +
+    geom_bar(stat = "identity", position = "dodge") +
+    # facet_col(. ~ type, scales = "free_y") +
+    scale_y_continuous("Density", label = comma) +
+    scale_x_continuous("Allele frequency") +
+    scale_fill_manual("", values = c(NEWCOLOR, OLDCOLOR)) +
+    theme_minimal_grid() +
+    theme(legend.position = "top")
+ggsave("tmp.pdf")
+```
+
+
+```{r}
+colnames(snv_counts) <- c(
+    "chr", "start", "end", "id",
+    "anno_SD", "anno_Unique", "count",
+    "x", "y", "z", "coverage"
+)
+snv_counts <- snv_counts[anno_SD | anno_Unique]
+snv_counts <- snv_counts[coverage <= 102 & coverage >= 80]
+
+snv_counts %>%
+    group_by(anno_SD) %>%
+    summarise(n() / 1e6)
+```
+
+
+```{r}
+snv_counts %>%
+    # head(1e6) %>%
+    mutate(
+        type = case_when(anno_SD == TRUE ~ "SD", TRUE ~ "Unique"),
+        count = case_when(
+            count > 102 ~ 51.0,
+            count > 51 ~ 102.0 - count,
+            TRUE ~ 1.0 * count
+        ),
+        af = pmin(count / coverage, 1),
+        af = case_when(
+            af > 0.5 ~ 1 - af,
+            TRUE ~ af
+        )
+    ) %>%
+    ggplot(aes(x = af, fill = type, group = type)) +
+    geom_histogram(
+        # aes(y = stat(count / sum(count))),
+        aes(y = ..density.. / 100),
+        position = "dodge", breaks = seq(1 / 102, 0.55, 2 / 102)
+    ) +
+    # facet_col(~type, scales = "free_y") +
+    scale_y_continuous("Density") +
+    scale_x_continuous("Allele frequency", limits = c(1 / 102, 0.5)) +
+    scale_fill_manual("", values = c(NEWCOLOR, OLDCOLOR)) +
+    theme_minimal_grid() +
+    theme(legend.position = "top")
+ggsave("tmp.pdf")
+```
+
+

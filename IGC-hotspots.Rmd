@@ -22,7 +22,7 @@ if(merged == "_merged"){
 }
 
 bash_script = glue('
-FAI="../../chm13_t2t/assemblies/chm13_v1.1_plus38Y.fasta.fai"
+FAI="data/anno/chm13_v1.1_plus38Y.fasta.fai"
 COV="data/haplotype_coverage_bed_graph.bed"
 W=1000
 
@@ -243,7 +243,7 @@ igc.cov.gr.df.all  %>%
     scale_y_continuous("SD copy number", trans="log10")+
     #geom_point() +
     theme_minimal_grid()
-
+ggsave("tmp.pdf")
 igc.cov.gr.df.all  %>%
     #sample_n(1e3) %>%
     ggplot(aes(x=per_hap_igc, y=fracMatch)) +
@@ -253,6 +253,7 @@ igc.cov.gr.df.all  %>%
     #scale_y_continuous(trans="log10")+
     #geom_point() +
     theme_minimal_grid()
+ggsave("tmp.pdf")
 
 model <- glm(per_hap_igc ~ log10( SD_count) * fracMatch  , data = igc.cov.gr.df.all )
 pred.test = predict.glm(model, igc.cov.gr.df.all)

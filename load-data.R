@@ -108,7 +108,7 @@ if (F) {
     df <- fread(f, stringsAsFactors = T)
     dim(df)
 
-    link <- "https://eichlerlab.gs.washington.edu/help/mvollger/share/20130606_g1k_3202_samples_ped_population.txt"
+    link <- "data/20130606_g1k_3202_samples_ped_population.txt"
     pop <- fread(link, stringsAsFactors = T) %>%
         dplyr::select(SampleID, Sex, Population, Superpopulation) %>%
         data.table() %>% 
@@ -270,7 +270,7 @@ if (F) {
     )
     GENES_V1.1.sd <- convert_to_sd_coords(GENES_V1.1, c(1, 2, 3), converter)
 
-    f <- "https://eichlerlab.gs.washington.edu/help/mvollger/share/morbity_map_chm13_v1.1.tsv"
+    f <- "data/morbity_map_chm13_v1.1.tsv"
     morb <- fread(f) %>%
         mutate(color = case_when(
             DEL && DUP ~ "purple",

@@ -1717,3 +1717,40 @@ for (i in 1:nrow(regions_of_interest_2)) {
 
 system("pdfunite figures/igc_moves_full_gene/*_move.pdf figures/igc_moves_full_gene.pdf")
 ```
+
+
+
+```{r}
+sd_space <- 120e6
+u_space <- 2500e6
+sd_vars <- sd_space * 15 / 1e4
+u_vars <- u_space * 9 / 1e4
+m <- matrix(c(sd_vars, u_vars, sd_space, u_space), nrow = 2)
+# m = matrix(c(sd_vars, sd_space, u_vars, u_space), nrow=2)
+m
+chisq.test(m)
+```
+
+
+
+```{r}
+large_igc <- merged_df %>%
+    filter(length >= quantile(length, 0.9)) # %>% head(300)
+min(large_igc$length)
+
+pdf("figures/large_igc_events_top_10_percent.pdf")
+kp <- plotKaryotype(
+    plot.type = 1, cytobands = CYTOFULL, genome = GENOME, chromosomes = NOYM
+)
+kpPlotLinks(
+    kp,
+    data = toGRanges(large_igc[, ..acceptor_columns]),
+    data2 = toGRanges(large_igc[, ..donor_columns]),
+    col = NEWCOLOR,
+    # border = NA
+    border = transparent(NEWCOLOR, 0.9)
+)
+kpAddCytobands(kp)
+dev.off()
+```
+

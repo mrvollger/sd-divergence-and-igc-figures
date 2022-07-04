@@ -12,13 +12,12 @@ library(ggbeeswarm)
 
 ```{r}
 
-# sv <- fread("/net/eichler/vol26/15000/nobackups/saffire_sv/hprc/CHM1_comb.tab")
-sv <- fread("/net/eichler/vol26/15000/nobackups/saffire_sv/hprc/results/raw/CHM1_h2/CHM1_h2_var_all.bed")
+sv <- fread("data/saffire_sv/CHM1_h2_var_all.bed")
 sv <- sv %>%
     filter(`#CHROM` != "chrY") %>%
     filter(SVTYPE != "GAP") %>%
     data.table()
-sat <- fread("/net/eichler/vol26/home/mvollger/chm13_t2t/Assembly_analysis/cen/SAT_arrays_2021_02_25.bed")
+sat <- fread("data/SAT_arrays_2021_02_25.bed")
 sv_types <- c("INS", "DEL", "DUP", "GAP", "INS_GAP", "DEL_GAP", "INV", "TRANSPOSE", "COMPLEX_ALIGNMENT", "INTER")
 
 sv$SVTYPE <- factor(sv$SVTYPE, levels = sv_types)

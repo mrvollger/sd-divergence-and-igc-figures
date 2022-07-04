@@ -189,9 +189,6 @@ igc_recur_df %>% mutate(length = (st2 - en1) / 1e3)
 
 
 ```{r}
-
-# paf <- fread("/net/eichler/vol26/projects/assembly_breaks/nobackups/asm-to-reference-alignment/tmp.all.paf")
-
 paf$len <- (paf$V9 - paf$V8) / 1e6
 paf <- paf[order(paf$len), ]
 paf$cum.pct <- with(paf, cumsum(len) / sum(len))
