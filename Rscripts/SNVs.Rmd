@@ -113,19 +113,33 @@ ggsave(file = "figures/annotation_sizes.pdf", height = 6, width = 8)
 
 ```{r}
 
-fakeadd <- 0.005
-plot.df <- snv_windows %>%
+tmp.plot.df <- snv_windows %>%
     # sample_n(50e6) %>%
     filter(region %in% c("Unique", "SD", "chrX")) %>%
     dplyr::select(!starts_with("anno_")) %>%
-    dplyr::select(!starts_with("dist_")) %>%
-    group_by(`#chr`, region, hap) %>%
-    mutate(grp = as.integer(gl(n(), 10, n()))) %>%
-    group_by(`#chr`, region, hap, grp) %>%
-    summarise(per_div = mean(per_div)) %>%
-    data.table()
+    dplyr::select(!starts_with("dist_"))
 
-plot.df[per_div == 0]$per_div <- fakeadd
+tmp.plot.df[, bases := end - start]
+tmp.plot.df[,
+    grp := rep(1:.N, each = 10, length.out = .N),
+    by = list(`#chr`, region, hap)
+]
+plot.df <- tmp.plot.df[,
+    .(
+        bases = sum(bases),
+        num_snv = sum(num_snv),
+        per_div = mean(per_div),
+        n_windows = .N
+    ),
+    by = list(`#chr`, region, hap, grp)
+]
+plot.df[, snvs_per_10 := num_snv / bases * 10e3]
+plot.df
+mean(plot.df$snvs_per_10)
+median(plot.df$snvs_per_10)
+
+fakeadd <- 0.5
+plot.df[snvs_per_10 == 0]$snvs_per_10 <- fakeadd
 pal <- COLORS[unique(plot.df$region)]
 plot.df
 window <- median(plot.df$end - plot.df$start)
@@ -134,21 +148,24 @@ window
 # make plot
 #
 
-p <- ggplot() +
+p <- plot.df %>%
+    filter(bases > 9e3 & bases < 11e3) %>%
+    ggplot() +
     stat_ecdf(
-        data = plot.df,
-        aes(per_div, color = region),
+        aes(snvs_per_10, color = region),
         size = 1.5, alpha = 0.75
     ) +
     scale_x_log10(
-        limits = c(fakeadd, 20),
-        breaks = c(fakeadd, 0.01, 0.1, 1, 10),
-        labels = c("0.00", "0.01", "0.10", "1.00", "10.0")
+        limits = c(fakeadd, 1000),
+        # breaks = c(fakeadd, 0.01, 0.1, 1, 10),
+        # labels = c("0.00", "0.01", "0.10", "1.00", "10.0")
+        breaks = c(fakeadd, 1, 10, 100, 1000),
+        labels = c("0", "1", "10", "100", "1000")
     ) +
     annotation_logticks(sides = "b") +
     scale_fill_manual(values = pal) +
     scale_color_manual(values = pal) +
-    xlab(glue("% divergence of 10 kbp windows")) +
+    xlab(glue("# SNVs in 10 kbp windows")) +
     ylab("Cumulative fraction of windows") +
     # ggtitle("Divergence of 10 kbp windows aligned to T2T-CHM13 v1.1",
     #    subtitle = "(Minimum 1 Mbp alignment, SD windows are at least 95% SD)"
@@ -170,7 +187,7 @@ plot.df2 <- plot.df %>%
 p2 <- p +
     stat_ecdf(
         data = plot.df2,
-        aes(per_div, group = paste0(hap, region), color = region),
+        aes(snvs_per_10, group = paste0(hap, region), color = region),
         alpha = 0.5,
         size = 0.1,
         linetype = "dashed"

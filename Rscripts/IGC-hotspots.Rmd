@@ -4,24 +4,24 @@ source("utils/gene-conversion-utils.R")
 ```
 
 ```{r}
-merged="_merged"
-abed="temp/a.bed"
-dbed="temp/d.bed"
-t_merged = copy(merged_df)
-t_merged$reference_start.liftover = round(t_merged$reference_start.liftover)
-t_merged$reference_end.liftover = round(t_merged$reference_end.liftover)
-t_merged$reference_start = round(t_merged$reference_start)
-t_merged$reference_end = round(t_merged$reference_end)
-if(merged == "_merged"){
+merged <- "_merged"
+abed <- "temp/a.bed"
+dbed <- "temp/d.bed"
+t_merged <- copy(merged_df)
+t_merged$reference_start.liftover <- round(t_merged$reference_start.liftover)
+t_merged$reference_end.liftover <- round(t_merged$reference_end.liftover)
+t_merged$reference_start <- round(t_merged$reference_start)
+t_merged$reference_end <- round(t_merged$reference_end)
+if (merged == "_merged") {
     t_merged[, ..acceptor_columns] %>%
-        fwrite(abed, sep="\t", col.names=FALSE, row.names=FALSE)
+        fwrite(abed, sep = "\t", col.names = FALSE, row.names = FALSE)
     t_merged[, ..donor_columns] %>%
-        fwrite(dbed, sep="\t", col.names=FALSE, row.names=FALSE)
+        fwrite(dbed, sep = "\t", col.names = FALSE, row.names = FALSE)
 } else {
 
 }
 
-bash_script = glue('
+bash_script <- glue('
 FAI="data/anno/chm13_v1.1_plus38Y.fasta.fai"
 COV="data/haplotype_coverage_bed_graph.bed"
 W=1000
@@ -44,14 +44,15 @@ exit
 
 ')
 system(bash_script)
-
 ```
 
 ```{r}
-min_hap_cov = 20
-pull_from = IGC
-pull_from = merged_df
-n_samples <- 102 #length(unique(IGC$sample))
+min_hap_cov <- 20
+pull_from <- IGC
+pull_from <- merged_df
+n_samples <- 102 # length(unique(IGC$sample))
+merged <- ""
+merged <- "_merged"
 igc_cov <- fread(glue("data/windowed_acceptor_donor_counts{merged}.bed")) %>%
     group_by(`#chr`, `start`, `end`) %>%
     pivot_longer(cols = c("acceptor", "donor")) %>%
@@ -59,20 +60,20 @@ igc_cov <- fread(glue("data/windowed_acceptor_donor_counts{merged}.bed")) %>%
     ungroup() %>%
     mutate(
         per_hap_igc = case_when(
-            name == "donor" ~ pmin(value/hap_cov * 100, 100),
-            TRUE ~ pmin(value/hap_cov * 100, 100)
+            name == "donor" ~ pmin(value / hap_cov * 100, 100),
+            TRUE ~ pmin(value / hap_cov * 100, 100)
         )
     ) %>%
     mutate(
         value = per_hap_igc,
         value = case_when(value > 100 ~ 100, TRUE ~ value),
-        value = case_when(name == "acceptor" ~ -value , TRUE ~ value)
+        value = case_when(name == "acceptor" ~ -value, TRUE ~ value)
     ) %>%
     filter(hap_cov >= min_hap_cov) %>%
     group_by(name) %>%
     # mutate(z_score_group = (value - mean(value)) / sd(value)) %>%
     mutate(
-        per_hap_igc_ecdf =  ecdf(per_hap_igc)(per_hap_igc),
+        per_hap_igc_ecdf = ecdf(per_hap_igc)(per_hap_igc),
         per = ecdf(value)(value)
     ) %>%
     data.table()
@@ -88,7 +89,7 @@ igc_cov %>%
 
 xx <- igc_cov %>%
     ggplot(aes(fill = name, x = value)) +
-    geom_histogram(alpha = 0.8, bins=201)+#, aes(weight = end -start)) +
+    geom_histogram(alpha = 0.8, bins = 201) + # , aes(weight = end -start)) +
     # facet_col(~name) +
     ylab("Count of genomic windows (1 kbp)") +
     xlab(glue("Percent of haplotypes with unique IGC events\n(minimum coverage of {min_hap_cov} haplotypes)")) +
@@ -97,23 +98,23 @@ xx <- igc_cov %>%
         aes(x = 100, y = 0, label = glue("{100}+")),
         nudge_y = 1e3
     ) +
-    scale_y_continuous(label = comma)+#trans="log10")+
-    scale_x_continuous(label = abs, limits=c(-100,100)) +
+    scale_y_continuous(label = comma) + # trans="log10")+
+    scale_x_continuous(label = abs, limits = c(-100, 100)) +
     scale_fill_manual("", values = c(acceptor = "darkblue", donor = "darkorange")) +
     theme_minimal_grid() +
     theme(legend.position = "top")
-ggsave("tmp.pdf", plot = xx, height=5, width=8)
-ggsave("figures/igc_coverage_hist.pdf", plot = xx, height=5, width=8)
+ggsave("tmp.pdf", plot = xx, height = 5, width = 8)
+ggsave("figures/igc_coverage_hist.pdf", plot = xx, height = 5, width = 8)
 
 
 igc_cov %>%
     group_by(name) %>%
-    summarise(x = list(round(quantile(per_hap_igc, probs = c(0.9,0.95, 0.99,.997))))) %>%
-    #separate_rows(x) %>%
+    summarise(x = list(round(quantile(per_hap_igc, probs = c(0.9, 0.95, 0.99, .997))))) %>%
+    # separate_rows(x) %>%
     data.table()
 
 
-igc.cov.gr = igc_cov %>%
+igc.cov.gr <- igc_cov %>%
     dplyr::select(-per, -cov_chr, -cov_start, -cov_end, -value, -per_hap_igc_ecdf) %>%
     mutate(
         zstrand = case_when(
@@ -126,11 +127,11 @@ igc.cov.gr = igc_cov %>%
 igc.cov.gr
 
 length(igc.cov.gr)
-SEDEF_V1.1_BOTH = rbind(SEDEF_V1.1, SEDEF_V1.1_LOWID, fill=TRUE)
-igc.cov.gr$SD_count = GenomicRanges::countOverlaps(igc.cov.gr, toGRanges(SEDEF_V1.1_BOTH))
+SEDEF_V1.1_BOTH <- rbind(SEDEF_V1.1, SEDEF_V1.1_LOWID, fill = TRUE)
+igc.cov.gr$SD_count <- GenomicRanges::countOverlaps(igc.cov.gr, toGRanges(SEDEF_V1.1_BOTH))
 
-o = findOverlaps(igc.cov.gr, toGRanges(SEDEF_V1.1_BOTH))
-igc.cov.gr = cbind(as.data.table(igc.cov.gr[queryHits(o)]), SEDEF_V1.1_BOTH[subjectHits(o), c("fracMatch")]) %>%
+o <- findOverlaps(igc.cov.gr, toGRanges(SEDEF_V1.1_BOTH))
+igc.cov.gr <- cbind(as.data.table(igc.cov.gr[queryHits(o)]), SEDEF_V1.1_BOTH[subjectHits(o), c("fracMatch")]) %>%
     group_by(seqnames, start, end, zstrand, hap_cov, name, per_hap_igc, SD_count) %>%
     summarise(
         fracMatchSum = sum(fracMatch),
@@ -138,31 +139,34 @@ igc.cov.gr = cbind(as.data.table(igc.cov.gr[queryHits(o)]), SEDEF_V1.1_BOTH[subj
     ) %>%
     as.data.table() %>%
     toGRanges(.)
-strand(igc.cov.gr) = igc.cov.gr$zstrand
+strand(igc.cov.gr) <- igc.cov.gr$zstrand
 
-hotspot_threshold = 20
+hotspot_threshold <- 20
 
-igc.cov.gr.all = copy(igc.cov.gr)
-igc.cov.gr = igc.cov.gr[igc.cov.gr$per_hap_igc >= hotspot_threshold]
+igc.cov.gr.all <- copy(igc.cov.gr)
+igc.cov.gr <- igc.cov.gr[igc.cov.gr$per_hap_igc >= hotspot_threshold]
 
-igc.cov.gr.df = as.data.table(igc.cov.gr)
-igc.cov.gr.df.all = as.data.table(igc.cov.gr.all)
+igc.cov.gr.df <- as.data.table(igc.cov.gr)
+igc.cov.gr.df.all <- as.data.table(igc.cov.gr.all)
 
-igc.hotspot = as.data.table(
+igc.hotspot <- as.data.table(
     GenomicRanges::reduce(
         igc.cov.gr + 10,
-          ignore.strand=F)
-    ) %>%
+        ignore.strand = F
+    )
+) %>%
     mutate(
         IGC = case_when(
             strand == "+" ~ "Acceptor",
             TRUE ~ "Donor"
         )
     )
-igc.hotspot %>% group_by(IGC) %>% summarise(n())
+igc.hotspot %>%
+    group_by(IGC) %>%
+    summarise(n())
 
 
-tables = list("Merged IGC hotspots" = igc.hotspot, "All IGC hostsports" = igc.cov.gr.df)
+tables <- list("Merged IGC hotspots" = igc.hotspot, "All IGC hostsports" = igc.cov.gr.df)
 wb <- createWorkbook()
 ## create and add a style to the column headers
 headerStyle <- createStyle(
@@ -175,7 +179,7 @@ headerStyle <- createStyle(
 ## style for body
 bodyStyle <- createStyle(borderStyle = "none", fontSize = 9, numFmt = "#,##0.00")
 for (i in seq(length(tables))) {
-    i = names(tables)[i]
+    i <- names(tables)[i]
     cur_tbl <- tables[[i]] %>% dplyr::select(-strand, -width)
     rows <- seq(nrow(cur_tbl))
     cols <- seq(ncol(cur_tbl))
@@ -189,7 +193,7 @@ for (i in seq(length(tables))) {
 
     addStyle(wb, i, headerStyle, gridExpand = TRUE, cols = cols, rows = 1)
     addStyle(wb, i, bodyStyle, gridExpand = TRUE, cols = cols, rows = 2:(nrow(cur_tbl) + 1))
-    #freezePane(wb, sheet = i, firstCol = TRUE, firstRow = TRUE)
+    # freezePane(wb, sheet = i, firstCol = TRUE, firstRow = TRUE)
     setColWidths(wb, i, cols = cols, widths = 12)
     writeData(wb = wb, sheet = i, x = cur_tbl)
 }
@@ -197,31 +201,33 @@ saveWorkbook(wb, "tables/IGC_hotspots.xlsx", overwrite = TRUE)
 ```
 
 ```{r}
-sd.all.gr = toGRanges(rbind(SEDEF_V1.1, SEDEF_V1.1_LOWID, fill=TRUE))
-z=coverage(sd.all.gr)
-data.table(cn=runValue(unlist(z)),  length=runLength(unlist(z))) %>%
+sd.all.gr <- toGRanges(rbind(SEDEF_V1.1, SEDEF_V1.1_LOWID, fill = TRUE))
+z <- coverage(sd.all.gr)
+data.table(cn = runValue(unlist(z)), length = runLength(unlist(z))) %>%
     filter(cn > 0) %>%
     group_by(cn) %>%
-    summarise(bp = sum(length)/1e6) %>%
+    summarise(bp = sum(length) / 1e6) %>%
     mutate()
 
-not_sd = setdiff(GENOME, sd.all.gr)
-random_sd_windows=createRandomRegions(
+not_sd <- setdiff(GENOME, sd.all.gr)
+random_sd_windows <- createRandomRegions(
     nregions = length(igc.cov.gr),
-    length.mean=mean(width(igc.cov.gr)),
-    length.sd=0,
-    genome=GENOME,
+    length.mean = mean(width(igc.cov.gr)),
+    length.sd = 0,
+    genome = GENOME,
     mask = not_sd,
-    non.overlapping=FALSE
+    non.overlapping = FALSE
 )
-random_sd_windows_counts = countOverlaps(random_sd_windows, sd.all.gr)
-wilcox.test(igc.cov.gr.df$SD_count, random_sd_windows_counts, alternative="greater")
+random_sd_windows_counts <- countOverlaps(random_sd_windows, sd.all.gr)
+wilcox.test(igc.cov.gr.df$SD_count, random_sd_windows_counts, alternative = "greater")
 median(igc.cov.gr.df$SD_count)
 median(random_sd_windows_counts)
-o = findOverlaps(random_sd_windows, toGRanges(SEDEF_V1.1_BOTH))
-random_sd_window_df = cbind(as.data.table(random_sd_windows[queryHits(o)]),
+o <- findOverlaps(random_sd_windows, toGRanges(SEDEF_V1.1_BOTH))
+random_sd_window_df <- cbind(
+    as.data.table(random_sd_windows[queryHits(o)]),
     SEDEF_V1.1_BOTH[subjectHits(o), "fracMatch"]
-) %>% group_by(seqnames, start, end) %>%
+) %>%
+    group_by(seqnames, start, end) %>%
     summarise(
         fracMatchSum = sum(fracMatch),
         fracMatch = max(fracMatch),
@@ -229,68 +235,79 @@ random_sd_window_df = cbind(as.data.table(random_sd_windows[queryHits(o)]),
     as.data.table()
 median(random_sd_window_df$fracMatch)
 median(igc.cov.gr.df$fracMatch)
-wilcox.test(igc.cov.gr.df$fracMatch, random_sd_window_df$fracMatch, alternative="greater")
+wilcox.test(igc.cov.gr.df$fracMatch, random_sd_window_df$fracMatch, alternative = "greater")
 
+```
 
-
-igc.cov.gr.df.all  %>%
-    #sample_n(1e3) %>%
-    ggplot(aes(x=per_hap_igc, y=SD_count)) +
-    #geom_point() +
-    #geom_density_2d()+#aes(fill = stat(log10(count))), bins = 20) +
-    geom_hex() +
-    stat_cor(method = "pearson", label.x.npc=.5) +
-    scale_y_continuous("SD copy number", trans="log10")+
-    #geom_point() +
+# plot IGC fraction vs SD variables
+```{r}
+igc.cov.gr.df.all %>%
+    filter(name == "acceptor") %>%
+    # sample_n(1e3) %>%
+    ggplot(aes(x = per_hap_igc, y = SD_count + 1)) +
+    # geom_point() +
+    # geom_density_2d()+#aes(fill = stat(log10(count)), bins = 20) +
+    geom_hex(bins = 20) +
+    stat_cor(method = "pearson", label.x.npc = .75) +
+    geom_smooth(method = "lm", se = F, color = "darkred") +
+    scale_y_continuous("SD copy number", trans = "log10") +
+    scale_x_continuous(
+        "# of unique IGC events in 1 kbp windows\n(normalized for # of assembled haplotypes)",
+    ) +
+    scale_fill_distiller("", palette = "Spectral", trans = "log10") +
+    annotation_logticks(side = "l") +
+    # geom_point() +
     theme_minimal_grid()
 ggsave("tmp.pdf")
-igc.cov.gr.df.all  %>%
-    #sample_n(1e3) %>%
-    ggplot(aes(x=per_hap_igc, y=fracMatch)) +
-    #geom_density_2d()+#aes(fill = stat(log10(count))), bins = 20) +
+igc.cov.gr.df.all %>%
+    filter(name == "acceptor") %>%
+    # sample_n(1e3) %>%
+    ggplot(aes(x = per_hap_igc, y = 1 - fracMatch)) +
+    # geom_density_2d()+#aes(fill = stat(log10(count))), bins = 20) +
     geom_hex() +
-    stat_cor(method = "pearson", label.x.npc=.5, label.y.npc=.25) +
-    #scale_y_continuous(trans="log10")+
-    #geom_point() +
+    stat_cor(method = "pearson") +
+    geom_smooth(method = "lm", se = F, color = "darkred") +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_distiller("", palette = "Spectral", trans = "log10") +
+    # geom_point() +
     theme_minimal_grid()
 ggsave("tmp.pdf")
 
-model <- glm(per_hap_igc ~ log10( SD_count) * fracMatch  , data = igc.cov.gr.df.all )
-pred.test = predict.glm(model, igc.cov.gr.df.all)
+model <- glm(per_hap_igc ~ log10(SD_count) * fracMatch, data = igc.cov.gr.df.all)
+pred.test <- predict.glm(model, igc.cov.gr.df.all)
 summary(model)
-mean(abs(pred.test-igc.cov.gr.df.all$per_hap_igc))
-with(summary(model), 1 - deviance/null.deviance)
+mean(abs(pred.test - igc.cov.gr.df.all$per_hap_igc))
+with(summary(model), 1 - deviance / null.deviance)
 ```
 
 ```{r}
-s=0.75
-pdf("figures/igc_hotspot.pdf", height=16*s, width =24*s)
-pt=2
+s <- 0.75
+pdf("figures/igc_hotspot.pdf", height = 16 * s, width = 24 * s)
+pt <- 2
 pp <- getDefaultPlotParams(plot.type = pt) # $plot.params
 pp$ideogramheight <- 50
-pp$leftmargin = pp$leftmargin/5
-pp$rightmargin = pp$rightmargin/5
+pp$leftmargin <- pp$leftmargin / 5
+pp$rightmargin <- pp$rightmargin / 5
 kp <- plotKaryotype(
-        genome=GENOME,
-        cytobands = CYTOFULL,
-        chromosomes = NOYM,
-        plot.type=pt,
-        plot.params = pp
-    )
-    window = 1e6
-    window <- 5e5
-    ymax=10
-    kpPlotDensity(kp,
-        data = toGRanges(igc.hotspot[IGC=="Acceptor"]),
-        r0 = d_bot, r1 = 1.0,
-        ymax=ymax,
-        window.size = window, col = acceptor_color
-    )
-    kpPlotDensity(kp,
-        data = toGRanges(igc.hotspot[IGC!="Acceptor"]),
-        ymax=ymax,
-        data.panel = 2, window.size = window, col = donor_color
-    )
+    genome = GENOME,
+    cytobands = CYTOFULL,
+    chromosomes = NOYM,
+    plot.type = pt,
+    plot.params = pp
+)
+window <- 1e6
+window <- 5e5
+ymax <- 10
+kpPlotDensity(kp,
+    data = toGRanges(igc.hotspot[IGC == "Acceptor"]),
+    r0 = d_bot, r1 = 1.0,
+    ymax = ymax,
+    window.size = window, col = acceptor_color
+)
+kpPlotDensity(kp,
+    data = toGRanges(igc.hotspot[IGC != "Acceptor"]),
+    ymax = ymax,
+    data.panel = 2, window.size = window, col = donor_color
+)
 dev.off()
-
 ```

@@ -38,11 +38,18 @@ p.mbp.gc <- ggplot(
     df.ecdf,
     aes(x = name, y = cum.bp, group = paste0(sample, Superpopulation))
 ) +
-    geom_line(alpha = 0.99, size = 0.2, linetype = "dashed", aes(color = Superpopulation)) + # (geom = "step")+
-    geom_line(data = df.sum.ecdf, aes(group = Superpopulation), color = "black", size = 1.5, alpha = 0.6) + # (geom = "step")+
+    geom_line(
+        alpha = 0.99, size = 0.2,
+        linetype = "dashed", aes(color = Superpopulation)
+    ) + # (geom = "step")+
+    geom_line(
+        data = df.sum.ecdf,
+        aes(group = Superpopulation), color = "black", size = 1.5, alpha = 0.6
+    ) + # (geom = "step")+
     geom_text_repel(
         data = df.text.ecdf, aes(label = label, group = "a"),
-        nudge_x = 0.5, nudge_y = 4, arrow = arrow(length = unit(0.1, "cm")), color = "black"
+        nudge_x = 0.5, nudge_y = 4,
+        arrow = arrow(length = unit(0.1, "cm")), color = "black"
     ) +
     scale_x_continuous(trans = "log10", label = comma) +
     scale_y_continuous(labels = comma) +
@@ -586,7 +593,8 @@ igc_in_genes <- function(gene_bed, gene_based = TRUE, df = IGC) {
         "gene_chr", "gene_start",
         "gene_end", "gene_name"
     )
-    gene_cols <- c(gene_cols, pli_cols)
+    gene_cols <- unique(c(gene_cols, pli_cols))
+    gene_cols
     grouped_genes <- gene_bed %>%
         filter(geneType == "protein_coding") %>%
         group_by(chr, gene, strand) %>%
@@ -640,7 +648,8 @@ igc_in_genes <- function(gene_bed, gene_based = TRUE, df = IGC) {
                 gene, status,
                 gene_chr, gene_start,
                 gene_end, gene_length, gene_name, gene_id,
-                pLI, exac_pLI
+                pLI, exac_pLI,
+                oe_lof_upper, pNull, oe_lof
             ) %>%
             dplyr::select(-score, -strand, -thickStart, -thickEnd, -color) %>%
             summarise(
@@ -661,9 +670,10 @@ igc_in_genes <- function(gene_bed, gene_based = TRUE, df = IGC) {
     } else {
 
     }
+    out_df$LOEUF <- out_df$oe_lof_upper
     out_df
 }
-
+gene_cols
 igc_genes <- igc_in_genes(gene_bed)
 head(igc_genes)
 colnames(igc_genes)
@@ -706,14 +716,26 @@ length(unique(igc_exons$gene_name))
 ```
 
 ```{r}
-add_repel_pli <- function(p, pli = 0.5, nudge_x = -0.25, nudge_y = 100, min_accpt = 0, min_donor = 0, y = 0) {
-    p + geom_text_repel(
-        data = pli_plot.df %>%
+add_repel_pli <- function(p, pli = 0.5, nudge_x = -0.25,
+                          nudge_y = 100, min_accpt = 0, min_donor = 0, y = 0, LOEUF = FALSE) {
+    filter_df <- pli_plot.df %>%
+        filter(
+            pLI >= pli,
+            N_IGC_Acceptor >= min_accpt,
+            N_IGC_Donor >= min_donor
+        )
+    if (LOEUF) {
+        filter_df <- pli_plot.df %>%
             filter(
-                pLI >= pli,
+                LOEUF <= 1,
+                LOEUF >= 0,
                 N_IGC_Acceptor >= min_accpt,
                 N_IGC_Donor >= min_donor
-            ),
+            )
+    }
+
+    p + geom_text_repel(
+        data = filter_df,
         aes_string(y = y),
         max.overlaps = 100,
         segment.alpha = 0.2,
@@ -728,7 +750,7 @@ add_repel_pli <- function(p, pli = 0.5, nudge_x = -0.25, nudge_y = 100, min_accp
 }
 
 pli_plot.df <- igc_exons %>%
-    group_by(gene_name, gene_id, pLI, exac_pLI) %>%
+    group_by(gene_name, gene_id, pLI, exac_pLI, LOEUF, pNull) %>%
     replace(is.na(.), -0.1) %>%
     summarise(
         average_length_Donor = mean(average_length_Donor),
@@ -741,13 +763,16 @@ pli_plot.df <- igc_exons %>%
     data.table()
 
 pli_plot.df[pLI >= 0.5]
-
+sum(pli_plot.df$pLI < 0)
+vals <- c("No data\navailable" = -0.1, `0.0` = 0.0, `0.25` = 0.25, `0.50` = 0.50, `0.75` = 0.75, `1.0` = 1.0)
+var <- "LOEUF"
 pli_plot_a <- (pli_plot.df %>%
-    ggplot(aes(x = pLI, label = gene_name)) +
-    geom_histogram(aes(x = pLI), bins = 50) +
+    ggplot(aes(x = LOEUF, label = gene_name)) +
+    geom_histogram(bins = 50) +
     ylab("Count of genes with IGC over exons")) %>%
-    add_repel_pli()
-
+    add_repel_pli(LOEUF = TRUE) +
+    scale_x_continuous(breaks = vals)
+ggsave("tmp.pdf")
 library(ggpubr)
 pli_plot_b <- (pli_plot.df %>%
     filter(pLI >= 0.0) %>%
@@ -774,9 +799,9 @@ pli_plot <- cowplot::plot_grid(
     cowplot::plot_grid(pli_plot_b, pli_plot_c),
     ncol = 1
 ) + theme(plot.background = element_rect(fill = "transparent", color = "transparent"))
-
-ggsave("figures/igc_pli.pdf", plot = pli_plot, height = 8, width = 20)
-ggsave("tmp.pdf", plot = pli_plot, height = 8, width = 20)
+s <- 0.75
+ggsave("figures/igc_pli.pdf", plot = pli_plot, height = 12 * s, width = 20 * s)
+ggsave("tmp.pdf", plot = pli_plot, height = 12 * s, width = 20 * s)
 
 
 

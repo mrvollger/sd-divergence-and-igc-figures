@@ -20,10 +20,7 @@ library(glue)
 library(ggExtra)
 library(HelloRanges)
 library(gt)
-# library(multidplyr)
 library("tidylog", warn.conflicts = FALSE)
-# cluster <- new_cluster(16)
-# cluster_library(cluster, "dplyr")
 odir <<- "figures"
 source("utils/snv-setup.R")
 
@@ -64,7 +61,8 @@ if (F) {
     pli <- fread("data/gnomad.v2.1.1.lof_metrics.by_gene.txt")
     pli_cols <- c(
         "gene_id", "pLI", "exac_pLI",
-        "cds_length", "num_coding_exons"
+        "cds_length", "num_coding_exons",
+        "oe_lof_upper", "pNull", "oe_lof"
     )
     gene_bed <- fread("data/CHM13.combined.v4.bb.bed") %>%
         mutate(gene = gsub("-\\d+$", "", name)) %>%
@@ -82,6 +80,10 @@ if (F) {
             by = "gene_id", all.x = TRUE
         ) %>%
         data.table()
+    SEDEF_V1.1.gr <- toGRanges(SEDEF_V1.1[, 1:3])
+    tmp_gr <- toGRanges(gene_bed[, 2:4])
+    gene_bed$is_SD <- FALSE
+    gene_bed$is_SD[queryHits(findOverlaps(tmp_gr, SEDEF_V1.1.gr))] <- TRUE
 
     gene_bed6 <- gene_bed %>%
         separate_rows(blockSizes,
@@ -100,6 +102,11 @@ if (F) {
     dim(gene_bed6)
     GENE_BED <- gene_bed
     GENE_BED6 <- gene_bed6
+    GENE_BED %>%
+        filter(geneType %in% c("protein_coding", "transcribed_processed_pseudogene")) %>%
+        group_by(is_SD, is.na(pLI)) %>%
+        summarize(n = length(unique(gene_id)))
+
 
 
     # these two files are the same but the second has a "group" column
@@ -111,15 +118,15 @@ if (F) {
     link <- "data/20130606_g1k_3202_samples_ped_population.txt"
     pop <- fread(link, stringsAsFactors = T) %>%
         dplyr::select(SampleID, Sex, Population, Superpopulation) %>%
-        data.table() %>% 
+        data.table() %>%
         bind_rows(
             data.table(
-                SampleID=c("CHM13", "CHM1", "GRCh38"),
-                Sex = c("F","F", "F"),
+                SampleID = c("CHM13", "CHM1", "GRCh38"),
+                Sex = c("F", "F", "F"),
                 Population = c("EUR", "EUR", "EUR"),
                 Superpopulation = c("EUR", "EUR", "EUR")
-                )
             )
+        )
     pop
     pop_small <- pop %>%
         dplyr::select(SampleID, Superpopulation) %>%

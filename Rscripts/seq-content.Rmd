@@ -22,7 +22,6 @@ conflict_prefer("summarise", "dplyr")
 source("load-data.R")
 ```
 ```{r}
-IS_IGC <- ""
 IS_IGC <- "-no-igc"
 
 SD_var <- "SDnoIGC"
@@ -377,7 +376,7 @@ for (population in c("")) { # , "_population"
         print(mutable_triplets_text)
 
         mutable_triplets <- mutable_triplets.df %>%
-            # filter(!CpG) %>%
+            filter(!CpG) %>%
             ggplot(aes(x = x, y = y, label = label)) +
             geom_text_repel(min.segment.length = 0) +
             geom_smooth(method = "lm", se = F, formula = y ~ x) +
@@ -389,10 +388,13 @@ for (population in c("")) { # , "_population"
                     "{mutable_triplets_text$expected_increase}% expected increase in SD mutations due to triplet context"
                 )
             ) +
-            scale_x_continuous("Frequency of mutation in unique sequence", trans = "log10") +
+            scale_x_continuous(
+                "Frequency of mutation in unique sequence",
+                 trans = "log10") +
             annotation_logticks(side = "b") +
             ylab(TeX("$ \\; \\frac{SD \\; composition}{Unique  \\; composition}$")) +
-            theme_minimal_grid() # ggsave("tmp.pdf")
+            theme_minimal_grid()
+        #ggsave("tmp.pdf", plot=mutable_triplets)
         mutable_triplets
         mutable_triplets.df
         ########################################################################################
