@@ -1,0 +1,86 @@
+```{r}
+all_sd_size <- 10e6
+cur_window <- 1e3
+number_of_windows_to_sample <- all_sd_size / cur_window
+number_of_windows_to_sample
+
+windows_10k <- snv_windows %>%
+    filter(`#chr` != "chrX")
+
+windows_10k[, bases := end - start]
+windows_10k[,
+    sample_window := rep(1:.N,
+        each = number_of_windows_to_sample,
+        length.out = .N
+    ),
+    by = list(region, hap)
+]
+
+grouped_windows <- windows_10k[,
+    .(
+        per_div = mean(per_div),
+        bases = sum(bases),
+        num_snv = sum(num_snv),
+        n_windows = .N
+    ),
+    by = list(region, hap, sample_window)
+]
+grouped_windows[, SNVsPer10k := 10e3 * num_snv / bases]
+grouped_windows
+```
+
+```{r}
+snv_per_10kbp_windows.plot <- grouped_windows %>%
+    filter(!(hap %in% c("CHM1_2", "GRCh38_2"))) %>%
+    filter(region %in% c("Unique", "SD")) %>%
+    filter(bases > 0.75 * median(bases) & bases < 1.25 * median(bases)) %>%
+    separate(hap, "_", into = c("SampleID", "hap#"), remove = F) %>%
+    merge(pop, by = "SampleID") %>%
+    mutate(is_afr = Superpopulation == "AFR") %>%
+    ggplot(aes(SNVsPer10k, fill = region)) +
+    geom_histogram(
+        aes(y = ..density..),
+        position = "identity", alpha = 0.8,
+        binwidth = 0.25
+    ) +
+    # geom_density(alpha = 0.75) +
+    theme_minimal_grid() +
+    scale_fill_manual(values = c(SD = NEWCOLOR, Unique = OLDCOLOR)) +
+    # facet_grid(region ~ is_afr, scales = "free_y") +
+    facet_col(~is_afr) +
+    scale_x_continuous(glue("Average number of SNVs/10 kbp in {all_sd_size/1e6} Mbp windows")) +
+    theme(legend.position = "top")
+ggsave("tmp.pdf", plot = snv_per_10kbp_windows.plot)
+```
+
+```{r}
+windows_10k %>%
+    data.table()
+```
+
+```{r}
+windows_10k_with_groups <- windows_10k %>%
+    mutate(sample_window = as.integer(gl(n(), number_of_windows_to_sample, n()))) %>%
+    group_by(`#chr`, hap, region, sample_window)
+```
+
+```{r}
+snv_per_10kbp_SD_size_sample <- windows_10k_with_groups %>%
+    summarise(
+        num_snv = sum(num_snv),
+        per_div = mean(per_div),
+        n_windows = n(),
+        bases = sum(bases),
+        SNVsPer10k = num_snv * 1 / bases * 10e3,
+    ) %>%
+    data.table()
+```
+
+```{r}
+library(tidyverse)
+p <- iris %>%
+    ggplot(aes(Sepal.Width, Petal.Length, color = Species)) +
+    geom_point() +
+    theme_minimal()
+p
+```
