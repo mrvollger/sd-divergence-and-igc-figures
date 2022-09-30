@@ -128,11 +128,21 @@ igc.cov.gr
 
 length(igc.cov.gr)
 SEDEF_V1.1_BOTH <- rbind(SEDEF_V1.1, SEDEF_V1.1_LOWID, fill = TRUE)
-igc.cov.gr$SD_count <- GenomicRanges::countOverlaps(igc.cov.gr, toGRanges(SEDEF_V1.1_BOTH))
+igc.cov.gr$SD_count <- GenomicRanges::countOverlaps(
+    igc.cov.gr,
+    toGRanges(SEDEF_V1.1_BOTH)
+)
 
 o <- findOverlaps(igc.cov.gr, toGRanges(SEDEF_V1.1_BOTH))
-igc.cov.gr <- cbind(as.data.table(igc.cov.gr[queryHits(o)]), SEDEF_V1.1_BOTH[subjectHits(o), c("fracMatch")]) %>%
-    group_by(seqnames, start, end, zstrand, hap_cov, name, per_hap_igc, SD_count) %>%
+igc.cov.gr <- cbind(
+    as.data.table(igc.cov.gr[queryHits(o)]),
+    SEDEF_V1.1_BOTH[subjectHits(o), c("fracMatch")]
+) %>%
+    group_by(
+        seqnames, start, end,
+        zstrand, hap_cov, name,
+        per_hap_igc, SD_count
+    ) %>%
     summarise(
         fracMatchSum = sum(fracMatch),
         fracMatch = max(fracMatch),

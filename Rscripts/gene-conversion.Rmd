@@ -3,6 +3,18 @@ source("load-data.R")
 source("utils/gene-conversion-utils.R")
 ```
 
+# add p-values
+```{r}
+df.all$pvalue <- get_pvalues_from_igc(df.all)
+table(df.all$Superpopulation)
+df.all %>%
+    filter(Superpopulation != "Total" & pvalue <= .05) %>%
+    group_by(sample) %>%
+    summarise(
+        Mbp = sum(reference_end - reference_start) / 1e6
+    )
+```
+
 ### ECDF IGC code
 
 ```{r ECDF}

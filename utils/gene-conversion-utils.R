@@ -69,12 +69,12 @@ convert_to_sd_coords <- function(in_df, cols, converter) {
     new_start <- o_df[, ..start_col][[1]] - o_df$subtract
     new_start <- pmax(new_start, min_st)
     new_start <- pmin(new_start, max_en)
-    o_df[[eval(start_col)]] = new_start
+    o_df[[eval(start_col)]] <- new_start
 
     new_end <- (round(o_df[, ..end_col]) - round(o_df$subtract))[[1]]
     new_end <- pmax(new_end, min_st)
     new_end <- pmin(new_end, max_en)
-    o_df[[eval(end_col)]] = new_end
+    o_df[[eval(end_col)]] <- new_end
 
     as.data.table(o_df[, ..col_names])
 }
@@ -261,25 +261,38 @@ make_gc_ideogram <- function(a, d, chromosomes, outfile, height = 36, width = 45
 }
 
 
-add_gene_list_col <- function(
-    df, 
-    cols=c(1,2,3), 
-    merge=TRUE, 
-    genelist=GENES,
-    gene_cols=c(1,2,3), 
-    outcol="genes",
-    gene_name_col="gene"
-) {
+add_gene_list_col <- function(df,
+                              cols = c(1, 2, 3),
+                              merge = TRUE,
+                              genelist = GENES,
+                              gene_cols = c(1, 2, 3),
+                              outcol = "genes",
+                              gene_name_col = "gene") {
     dim(df)
-    o = GenomicRanges::findOverlaps(toGRanges(df[,..cols]), toGRanges(genelist[,..gene_cols]))
-    group_cols = colnames(df)
-    odf = cbind(df[queryHits(o)], genelist[subjectHits(o), ..gene_name_col])
-    missing = setdiff(seq(nrow(df)), queryHits(o))
+    o <- GenomicRanges::findOverlaps(toGRanges(df[, ..cols]), toGRanges(genelist[, ..gene_cols]))
+    group_cols <- colnames(df)
+    odf <- cbind(df[queryHits(o)], genelist[subjectHits(o), ..gene_name_col])
+    missing <- setdiff(seq(nrow(df)), queryHits(o))
 
-    odf %>% 
+    odf %>%
         group_by_at(vars(group_cols)) %>%
-        summarise(crazy=paste(unique(!!as.symbol(gene_name_col)), collapse = ";")) %>%
-        bind_rows(., df[missing,]) %>%
+        summarise(crazy = paste(unique(!!as.symbol(gene_name_col)), collapse = ";")) %>%
+        bind_rows(., df[missing, ]) %>%
         rename(!!outcol := crazy) %>%
         data.table()
+}
+
+# method from https://mobilednajournal.biomedcentral.com/articles/10.1186/s13100-021-00232-4
+get_pvalues_from_igc <- function(df) {
+    z <- df %>%
+        mutate(
+            pvalue = pbinom(
+                floor((mismatches.liftover - name - 1) / 2),
+                size = floor(mismatches.liftover),
+                prob = 0.5
+            )
+        ) %>%
+        dplyr::select(mismatches.liftover, mismatches, name, pvalue) %>%
+        data.table()
+    z$pvalue
 }
