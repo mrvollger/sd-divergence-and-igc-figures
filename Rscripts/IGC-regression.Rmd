@@ -17,6 +17,10 @@ sum(flat_all_sd$end - flat_all_sd$start) / 1e6
 
 hap_cov <- fread("data/haplotype_coverage_bed_graph.bed")
 colnames(hap_cov) <- c("chrom", "start", "end", "hap_coverage")
+# load TMRCA
+tmrca <- fread("data/TMRCA/TMRCA.tbl")
+# load gc
+gc_df <- fread("data/gc_content/gc_content.bed")
 ```
 
 
@@ -45,20 +49,17 @@ merge_into_windows <- function(df, n_win = 10) {
     ] %>%
         filter(
             end - start > 0.9 * bases & end - start < 1.1 * bases
+        ) %>%
+        mutate(
+            SNVsPer10k = 10e3 * num_snv / bases
         )
-    grouped_windows[, SNVsPer10k := 10e3 * num_snv / bases]
     grouped_windows
 }
-sd_windows <- snv_windows[region == "SD"] %>%
-    mutate(width = end - start) %>%
-    rename(
-        `chrom` = "#chr",
-    )
-sd_windows_10 <- merge_into_windows(sd_windows, n_win = 10)
-mean(sd_windows_10$end - sd_windows_10$start == 10e3)
-dim(sd_windows_10) / 1e6
-dim(sd_windows) / 1e6
-merged_sd_windows <- sd_windows_10[,
+# add chrom name
+snv_windows[, chrom := `#chr`]
+# merge into 10 windows
+windows_10 <- merge_into_windows(snv_windows, n_win = 10)
+merged_windows <- windows_10[,
     .(
         hap_coverage = .N,
         num_snv = sum(num_snv),
@@ -66,15 +67,26 @@ merged_sd_windows <- sd_windows_10[,
     ),
     by = list(chrom, start, end, region)
 ]
-merged_sd_windows[, SNVs_per_10 := num_snv / bases * 10e3]
-merged_sd_windows
-mean(merged_sd_windows$SNVs_per_10)
+merged_windows[, SNVs_per_10 := num_snv / bases * 10e3]
+# add gc info
+columns <- colnames(merged_windows)
+merged_windows <- merged_windows %>%
+    bed_intersect(., gc_df, suffix = c("", ".gc")) %>%
+    group_by_at(vars(one_of(columns))) %>%
+    summarise(
+        GC = mean(GC.gc),
+        AT = 1 - GC
+    ) %>%
+    data.table()
+merged_sd_windows <- merged_windows[region == "SD"]
+# summary info
+merged_windows %>%
+    group_by(region) %>%
+    summarise(
+        mean(SNVs_per_10), n()
+    )
 ```
 
-# load TMRCA
-```{r}
-tmrca <- fread("data/TMRCA/TMRCA.tbl")
-```
 # add igc or other info to SDs
 ```{r}
 add_sd_info_to_df <-
@@ -83,7 +95,11 @@ add_sd_info_to_df <-
              add_igc = FALSE,
              add_tmrca = TRUE,
              min_pvalue = 0.05) {
-        columns <- c(colnames(df), "hap_coverage", "n_unique_igc", "AT", "GC", "TMRCA")
+        columns <- c(
+            colnames(df),
+            "hap_coverage", "n_unique_igc",
+            "AT", "GC", "TMRCA"
+        )
         if (add_hap) {
             df <- df %>%
                 bed_intersect(., hap_cov, suffix = c("", ".hap")) %>%
@@ -98,8 +114,6 @@ add_sd_info_to_df <-
                 group_by_at(vars(one_of(columns))) %>%
                 summarise(
                     TMRCA = mean(TMRCA.tmrca),
-                    AT = mean(AT.tmrca),
-                    GC = mean(GC.tmrca)
                 ) %>%
                 data.table()
         }
@@ -119,7 +133,7 @@ add_sd_info_to_df <-
         }
         print(dim(df))
         print(colnames(df))
-        df %>%
+        df <- df %>%
             bed_intersect(., all_sd, suffix = c("", ".SD")) %>%
             group_by_at(vars(one_of(columns))) %>%
             summarise(
@@ -131,22 +145,29 @@ add_sd_info_to_df <-
                 SD_count = n()
             ) %>%
             data.table()
+
+        df$n_unique_igc_per_hap <- df$n_unique_igc / df$hap_coverage
+        df$has_igc <- factor(df$n_unique_igc_per_hap > 0)
+        df$sd_divergence <-
+            1 - df$maxFracMatch
+        df
     }
-merged_sd_windows_info <- add_sd_info_to_df(
+
+merged_tmrca <- add_sd_info_to_df(
+    merged_sd_windows,
+    add_igc = TRUE,
+    add_tmrca = TRUE,
+    min_pvalue = 0.1
+)
+merged_sd_tmrca <- merged_tmrca[region == "SD"]
+
+merged_windows_info <- add_sd_info_to_df(
     merged_sd_windows,
     add_igc = TRUE,
     add_tmrca = FALSE,
     min_pvalue = 0.1
 )
-merged_sd_windows_info$n_unique_igc_per_hap <-
-    merged_sd_windows_info$n_unique_igc / merged_sd_windows_info$hap_coverage
-
-merged_sd_windows_info$has_igc <- factor(
-    merged_sd_windows_info$n_unique_igc_per_hap > 0
-)
-
-merged_sd_windows_info$sd_divergence <-
-    1 - merged_sd_windows_info$maxFracMatch
+merged_sd_windows_info <- merged_windows_info[region == "SD"]
 ```
 
 ```{r}
@@ -161,7 +182,7 @@ model <- lm(
             scale(TMRCA) +
             scale(GC)
     )^2,
-    data = merged_sd_windows_info
+    data = merged_sd_tmrca
 )
 summary(model)
 ```
@@ -183,6 +204,7 @@ merged_sd_windows_info %>%
 ggsave("tmp.pdf")
 ```
 
+# SNVs per 10 vs SD identity 
 ```{r}
 merged_sd_windows_info %>%
     # filter(pvalue <= 0.05) %>%
@@ -257,4 +279,63 @@ merged_igc_with_sd <- merged_igc %>%
     ) %>%
     data.table()
 dim(merged_igc_with_sd)
+```
+
+
+
+```{r}
+merged_windows %>%
+    group_by(region) %>%
+    summarise(mean(SNVs_per_10), n())
+z <- merged_windows %>%
+    filter(region %in% c("Unique", "SD")) %>%
+    # filter(Superpopulation == "AFR") %>%
+    mutate(
+        GC_bin = cut(GC, breaks = seq(0, 0.60, 0.05))
+    ) %>%
+    filter(!is.na(GC_bin)) %>%
+    group_by(region, GC_bin) %>%
+    filter(n() > 2e3) %>%
+    slice(sample(min(10e3, n()))) %>%
+    ggplot(aes(x = GC_bin, y = SNVs_per_10, fill = region)) +
+    geom_violin() +
+    geom_label(
+        data = . %>%
+            group_by(GC_bin, region) %>%
+            summarise(
+                m = mean(SNVs_per_10)
+            ),
+        aes(y = m + 1 * (region == "SD"), label = round(m, 2)),
+        color = "white"
+    ) +
+    # geom_hex() +
+    # geom_smooth(method = "lm", se = FALSE) +
+    # stat_cor() +
+    # scale_fill_distiller("", palette = "Spectral", trans = "log10") +
+    # facet_col(~region) +
+    scale_y_continuous(
+        "# of SNVs per 10 kbp\n(10,000 windows in each violin)",
+        trans = "log10", label = comma
+    ) +
+    annotation_logticks(side = "l") +
+    scale_fill_manual(values = c(SD = NEWCOLOR, Unique = OLDCOLOR)) +
+    xlab("GC fraction") +
+    theme_minimal_grid()
+ggsave("tmp.pdf")
+ggsave("figures/SNVs_per_10kbp_by_GC_fraction.pdf")
+```
+```{r}
+library(karyoploteR)
+pdf("tmp.pdf")
+chrs <- NOYM
+kp <- plotKaryotype(
+    plot.type = 2,
+    cytobands = CYTOFULL, genome = GENOME, chromosomes = chrs
+)
+ymax <- 2e4
+kpPlotDensity(kp,
+    data = toGRanges(gc_df[GC >= 0.6]),
+    data.panel = 1, window.size = 100e3, col = transparent(NEWCOLOR, 0.25)
+)
+dev.off()
 ```

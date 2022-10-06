@@ -1,0 +1,135 @@
+```{r load-data, include=FALSE}
+source("load-data.R")
+source("utils/gene-conversion-utils.R")
+```
+
+# add p-values
+```{r}
+df.all$pvalue <- get_pvalues_from_igc(df.all)
+table(df.all$Superpopulation)
+igc.pval <- df.all %>%
+    mutate(pcut = cut(pvalue,
+        breaks = c(0, 0.001, 0.01, 0.05, 0.1, 0.5, 1),
+        include.lowest = TRUE
+    )) %>%
+    group_by(sample) %>%
+    arrange(pvalue) %>%
+    mutate(
+        length = as.numeric(
+            reference_end.liftover - reference_start.liftover
+        )
+    ) %>%
+    mutate(
+        cum.bp.pval = cumsum(length),
+        mm = max(cum.bp.pval),
+    )
+```
+
+### ECDF IGC code
+
+```{r ECDF}
+df.ecdf <- igc.pval %>%
+    arrange(pvalue) %>%
+    group_by(sample, Superpopulation) %>%
+    mutate(cum.bp = cumsum(length)) %>%
+    group_by(pvalue, Superpopulation, sample, pcut) %>%
+    summarise(cum.bp = c(max(cum.bp), min(cum.bp)) / 1e6) %>%
+    data.table()
+
+df.sum.ecdf <- igc.pval %>%
+    arrange(pvalue) %>%
+    group_by(Superpopulation) %>%
+    mutate(cum.bp = cumsum(length) / length(unique(sample))) %>%
+    dplyr::select(cum.bp, pvalue, Superpopulation) %>%
+    group_by(pvalue, Superpopulation) %>%
+    summarise(cum.bp = c(max(cum.bp), min(cum.bp)) / 1e6) %>%
+    data.table()
+
+df.text.ecdf <- df.ecdf %>%
+    group_by(pcut, sample, Superpopulation) %>%
+    summarise(
+        cum.bp = max(cum.bp),
+        pcut = pcut[which.max(cum.bp)]
+    ) %>%
+    group_by(pcut, Superpopulation) %>%
+    summarise(
+        sd = sd(cum.bp),
+        cum.bp = mean(cum.bp),
+    ) %>%
+    mutate(
+        pvalue = as.numeric(gsub("\\]", "", gsub(".*,", "", pcut))),
+        label = paste("p < ", pvalue, "\n", round(cum.bp, 2), "+/-", round(sd, 2))
+    ) %>%
+    drop_na()
+df.text.ecdf
+```
+
+```{r}
+p.mbp.gc <- ggplot(
+    df.ecdf %>% filter(Superpopulation == "Total"),
+    aes(x = pvalue + 0.0005, y = cum.bp, group = sample)
+) +
+    geom_line(alpha = 0.99, size = 0.2, linetype = "dashed") +
+    geom_line(
+        aes(group = Superpopulation),
+        data = df.sum.ecdf %>% filter(Superpopulation == "Total"),
+        color = "black", size = 2.5, alpha = 0.6
+    ) +
+    geom_text_repel(
+        data = df.text.ecdf %>% filter(Superpopulation == "Total"),
+        aes(label = label, group = "a"),
+        nudge_y = 4,
+        arrow = arrow(length = unit(0.1, "cm")), color = "black"
+    ) +
+    scale_y_continuous(labels = comma) +
+    scale_x_continuous(trans = "log10") +
+    annotation_logticks(side = "b") +
+    xlab("IGC p-value threshold") +
+    ylab("Average Mbp of gene conversion per haplotype") +
+    # facet_wrap(~Superpopulation, ncol = 2) +
+    theme_minimal_grid() +
+    theme(legend.position = "none")
+ggsave("tmp.pdf", width = 8, height = 6, plot = p.mbp.gc)
+my_ggsave("figures/igc-by-pvalue-ecdf.pdf",
+    width = 8, height = 6, plot = p.mbp.gc
+)
+```
+
+
+```{r}
+p.mbp.gc <- ggplot(
+    df.ecdf,
+    aes(x = pvalue, y = cum.bp, group = paste0(sample, Superpopulation))
+) +
+    geom_line(
+        alpha = 0.99, size = 0.2,
+        linetype = "dashed",
+        aes(color = Superpopulation)
+    ) + # (geom = "step")+
+    geom_line(
+        data = df.sum.ecdf,
+        aes(group = Superpopulation, color = Superpopulation),
+        size = 1.5, alpha = 0.6
+    ) + # (geom = "step")+
+    # geom_text_repel(
+    #    data = df.text.ecdf, aes(label = label, group = "a"),
+    #    nudge_x = 0.5, nudge_y = 4,
+    #    arrow = arrow(length = unit(0.1, "cm")), color = "black"
+    # ) +
+    # scale_x_continuous(trans = "log10", label = comma) +
+    scale_y_continuous(labels = comma) +
+    annotation_logticks(side = "b") +
+    scale_color_brewer(palette = "Set1") +
+    xlab("Number of SNV events that must map better at a new location") +
+    ylab("Average Mbp of gene conversion per haplotype") +
+    # facet_wrap(~Superpopulation, ncol = 2) +
+    theme_minimal_grid() +
+    theme(legend.position = "none")
+my_ggsave("tmp.pdf", width = 12 * 0.75, height = 16 * 0.75, plot = p.mbp.gc)
+```
+
+
+```{r}
+
+```
+

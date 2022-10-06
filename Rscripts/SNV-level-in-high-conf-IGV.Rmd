@@ -1,0 +1,13 @@
+
+```{r}
+IGC$pvalue <- get_pvalues_from_igc(IGC)
+```
+
+```{r}
+dim(HPRC_SNVS) / 1e6
+snvs <- HPRC_SNVS %>%
+    filter(SAMPLE == "HG002") %>%
+    mutate(sample = paste(SAMPLE, gsub("h", "", HAP), sep = "_"))
+dim(snvs)
+head(snvs, 1)
+```

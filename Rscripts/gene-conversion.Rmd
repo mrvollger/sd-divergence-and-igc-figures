@@ -7,12 +7,6 @@ source("utils/gene-conversion-utils.R")
 ```{r}
 df.all$pvalue <- get_pvalues_from_igc(df.all)
 table(df.all$Superpopulation)
-df.all %>%
-    filter(Superpopulation != "Total" & pvalue <= .05) %>%
-    group_by(sample) %>%
-    summarise(
-        Mbp = sum(reference_end - reference_start) / 1e6
-    )
 ```
 
 ### ECDF IGC code
@@ -102,7 +96,7 @@ p.mbp.gc <- ggplot(
 my_ggsave("{odir}/igc.mbp.simple.pdf", width = 8, height = 6, plot = p.mbp.gc)
 ```
 
-ECDF for CHM1 only
+# ECDF for CHM1 only
 
 ```{r}
 p.mbp.gc <- ggplot(
@@ -431,6 +425,8 @@ tmp <- igc.dist %>%
 my_ggsave("figures/igc_dist.pdf", height = 8, width = 8, plot = p.igc.dist.len)
 ```
 
+
+
 ```{r ideogram per haplotype}
 # uses these from other block
 min_snv <- 10
@@ -499,7 +495,7 @@ out_igc <- IGC %>%
         genelist = ALL_GENES_V1.1,
         outcol = "IGC.genes", cols = donor_columns
     ) %>%
-    select(-thickStart, -thickEnd, -color, -strand, -score, -status, -cum.bp, -igc_count, -Sex, -Population) %>%
+    select(-thickStart, -thickEnd, -color, -strand, -score, -status, -cum.bp, -Sex, -Population) %>%
     dplyr::rename(setNames(names(.), gsub("\\.liftover", ".acceptor", names(.)))) %>%
     dplyr::rename(setNames(names(.), gsub(".*reference_name", "chrm", names(.)))) %>%
     dplyr::rename(setNames(names(.), gsub("reference_", "", names(.)))) %>%
@@ -572,7 +568,10 @@ sum_df <- bind_rows(
     .id = "Category"
 ) %>%
     mutate(
-        Superpopulation = case_when(!startsWith(Category, "By sample") ~ "NA", TRUE ~ as.character(Superpopulation)),
+        Superpopulation = case_when(
+            !startsWith(Category, "By sample") ~ "NA",
+            TRUE ~ as.character(Superpopulation)
+        ),
         Category = factor(Category, levels = unique(Category)),
     ) %>%
     group_by(Category, Haplotype, Superpopulation) %>%
@@ -970,12 +969,16 @@ igc_with_genes <- merged_df %>%
         cols = donor_columns, outcol = "donor_genes",
         gene_name_col = "gene_name"
     )
-
+merged_df$pvalue <- get_pvalues_from_igc(merged_df)
 igc_genes_of_interest <- merged_df %>%
+    filter(pvalue <= 0.05) %>%
     filter(
-        grepl(igc_gene_pat, donor_gene_names) | grepl(igc_gene_pat, acceptor_gene_names)
+        grepl(igc_gene_pat, donor_gene_names) |
+            grepl(igc_gene_pat, acceptor_gene_names)
     ) %>%
-    mutate(gene_of_interest = str_extract(acceptor_gene_names, igc_gene_pat)) %>%
+    mutate(
+        gene_of_interest = str_extract(acceptor_gene_names, igc_gene_pat)
+    ) %>%
     mutate(gene_of_interest = case_when(
         is.na(gene_of_interest) ~ str_extract(donor_gene_names, igc_gene_pat),
         TRUE ~ gene_of_interest
@@ -984,10 +987,12 @@ igc_genes_of_interest <- merged_df %>%
     mutate(gene_of_interest = gsub("TBC1D3.*", "TBC1D3", gene_of_interest))
 igc_genes_of_interest
 
-igc_genes_of_interest$gene_of_interest %>% unique()
+z <- merged_df[(pvalue < 0.05) & (reference_start > 19e6) & (reference_end < 30e6) & (reference_name == "chr15"), ]
+z$gene_of_interest <- "chr15_19_30"
+
+igc_genes_of_interest <- rbind(igc_genes_of_interest, z)
 igc_genes_of_interest$gene_of_interest %>%
-    unique() %>%
-    length()
+    unique()
 length(igc_fig_genes)
 ```
 
@@ -1018,12 +1023,12 @@ regions_of_interest <- igc_genes_of_interest %>%
 regions_of_interest
 dim(regions_of_interest)
 
-
+regions_of_interest <- regions_of_interest[gene_of_interest == "chr15_19_30"]
 i <- 1
 dt <- igc_genes_of_interest
 min_snv <- 0
-min_sample <- 0
-n_events <- 1e6
+min_sample <- 2
+n_events <- 100
 for (i in 1:nrow(regions_of_interest)) {
     my_chrm <- regions_of_interest$chr[[i]]
     chrm <- regions_of_interest$chr[[i]]
@@ -1050,6 +1055,7 @@ for (i in 1:nrow(regions_of_interest)) {
     cur_igc <-
         dt[condition1 & condition2] %>%
         filter(
+            gene_of_interest == my_gene_of_interest,
             name >= min_snv,
             n >= min_sample,
         ) %>%
@@ -1097,7 +1103,7 @@ for (i in 1:nrow(regions_of_interest)) {
         mutate(gene = gene_name) %>%
         ungroup() %>%
         mutate(
-            y = disjointBins(IRanges(start, end) + length / 5e3),
+            y = disjointBins(IRanges(start, end) + my_len / 50),
             color = (gene_id %in% gene_ids_with_igc) # grepl(gene_of_interest, gene)
         ) %>%
         arrange(color) %>%
@@ -1122,11 +1128,14 @@ for (i in 1:nrow(regions_of_interest)) {
             size = 0.75
         ) +
         geom_text_repel(
-            data = df_genes %>% filter(color == TRUE),
+            data = df_genes %>%
+                group_by(gene, color) %>%
+                sample_n(1),
             aes(label = gene, color = color),
-            direction = "y",
+            # direction = "y",
+            size = 3,
             segment.size = .2,
-            nudge_y = 1
+            nudge_y = 1,
         ) +
         geom_segment(
             data = cur_morb,
@@ -1177,7 +1186,8 @@ for (i in 1:nrow(regions_of_interest)) {
 
     cur_gc <- cur_igc %>%
         # arrange(-(st1 + en1) / 2) %>%
-        arrange(n, -(st1 + en1) / 2) %>%
+        # arrange(n, -(st1 + en1) / 2) %>%
+        arrange(pvalue, -(st1 + en1) / 2) %>%
         mutate(id = paste(rev(row_number()), sample, sep = ": ")) %>%
         mutate(
             id = factor(id, levels = unique(id)),
@@ -1185,6 +1195,7 @@ for (i in 1:nrow(regions_of_interest)) {
         ) %>%
         mutate(arrow_st = case_when(st1 < st2 ~ st2, TRUE ~ en2)) %>%
         mutate(arrow_en = case_when(st1 < st2 ~ en1, TRUE ~ st1)) %>%
+        head(n_events) %>%
         data.table()
     cur_gc
     cur_igc
@@ -1261,6 +1272,7 @@ for (i in 1:nrow(regions_of_interest)) {
         # )
         # ) +
         theme_minimal_grid() +
+        # ggtitle(glue("IGC in {gene_of_interest} on {chrm}"))
         theme(
             strip.background = element_blank(),
             strip.text.x = element_blank(),
@@ -1270,8 +1282,7 @@ for (i in 1:nrow(regions_of_interest)) {
             legend.key.size = unit(1, "cm"),
             axis.text.y = element_text(size = 8),
             # plot.margin = margin(0, 0, 0, 0, unit = "pt")
-        ) +
-        ggtitle(glue("IGC in {gene_of_interest} on {chrm}"))
+        )
 
     p_hist <- cur_gc %>%
         ggplot(aes(y = id, x = n)) +
@@ -1292,17 +1303,17 @@ for (i in 1:nrow(regions_of_interest)) {
     if (nrow_cur_gc <= 30) {
         scale <- 0.7
     }
-    fig_height <- (max(11, nrow_cur_gc / 5 + 1)) * scale
-
+    fig_height <- (max(11, nrow_cur_gc / 6 + 1)) * scale
+    gene_height <- length(unique(df_genes$y)) / 3
     fig_patch <- p_gc + p_hist + p_genes + plot_spacer() + plot_cov +
         plot_layout(
             widths = c(5, 1),
-            heights = c(fig_height - 2, 1, 1),
+            heights = c(fig_height - 2, gene_height, 1),
             nrow = 3, ncol = 2
         ) & theme(
         plot.background = element_rect(fill = "transparent", color = "transparent")
     )
-    ggsave(glue("{odir}/genes/{gene_of_interest}_{chrm}_min_snv_{min_snv}_gc_fig.pdf"),
+    ggsave(glue("{odir}/genes/2022-10-03/{gene_of_interest}_{chrm}_min_snv_{min_snv}_gc_fig.pdf"),
         limitsize = FALSE,
         # height=12,
         height = fig_height,
@@ -1310,9 +1321,10 @@ for (i in 1:nrow(regions_of_interest)) {
         bg = "transparent",
         plot = fig_patch
     )
+    ggsave("tmp.pdf")
 }
 
-system(glue("pdfunite figures/genes/*min_snv_{min_snv}*.pdf figures/igc_all_genes_booklet_min_snv_{min_snv}.pdf"))
+system(glue("pdfunite figures/genes/2022-10-03/*min_snv_{min_snv}*.pdf figures/2022-10-03/igc_all_genes_booklet_min_snv_{min_snv}.pdf"))
 print("hi")
 ```
 

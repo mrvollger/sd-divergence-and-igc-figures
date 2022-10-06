@@ -107,8 +107,39 @@ anno_sizes.p <- anno_sizes %>%
     scale_color_brewer(palette = "Set1") +
     theme_minimal_grid() +
     theme(legend.position = "none")
-anno_sizes.p
+# anno_sizes.p
+ggsave("tmp.pdf")
 ggsave(file = "figures/annotation_sizes.pdf", height = 6, width = 8)
+anno_sizes$afr <- "Non-African haplotypes"
+anno_sizes$afr[anno_sizes$Superpopulation == "AFR"] <- "African haplotypes"
+anno_sizes.simple.p <- anno_sizes %>%
+    ggplot(aes(
+        y = Mbp, x = afr,
+        # color = Superpopulation,
+        fill = Region
+    )) +
+    ylab("Mbp of sequence within synteny blocks >1 Mbp") +
+    geom_violin(alpha = 0.8) +
+    geom_quasirandom() +
+    geom_text_repel(
+        data = . %>%
+            filter(Sample == "CHM1"),
+        aes(label = Sample),
+        min.segment.length = 0,
+        force = 3,
+        nudge_x = 0.35,
+        nudge_y = 30,
+    ) +
+    xlab("") +
+    scale_y_continuous(label = comma) +
+    facet_col(~Region, scales = "free_y") +
+    scale_fill_manual(values = c(SD = NEWCOLOR, Unique = OLDCOLOR)) +
+    theme_minimal_grid() +
+    theme(
+        legend.position = "top"
+    )
+ggsave(file = "tmp.pdf", height = 6, width = 8)
+ggsave(file = "figures/annotation_sizes_simple.pdf", height = 6, width = 8)
 ```
 
 ```{r}
@@ -270,7 +301,35 @@ pcolors <- c(myCOLORS, new_cols)
 pcolors
 df$facet_row <- factor(df$facet_row, levels = names(pcolors))
 
-outfile <- "figures/per_10_kbp_violins/{i}.pdf"
+# figureing out variance in measurment
+df %>%
+    filter(region %in% c("SD", "Unique")) %>%
+    group_by(region, Superpopulation) %>%
+    summarise(
+        m = mean(`# SNVs per 10 kbp`),
+        sd = sd(`# SNVs per 10 kbp`),
+        se = sd / sqrt(n()),
+        n = n()
+    )
+df
+
+for (my_hap in unique(df[Superpopulation == "EUR"]$hap)) {
+    tdf <- df[hap == my_hap]
+    print(tdf)
+}
+fold_change.df <- df %>%
+    filter(region %in% c("SD", "Unique")) %>%
+    pivot_wider(
+        id_cols = c("region"),
+        names_from = "Superpopulation",
+        values_from = "# SNVs per 10 kbp"
+    ) %>%
+    # mutate(
+    # fc = SD / Unique
+    # ) %>%
+    data.table()
+fold_change.df
+outfile() <- "figures/per_10_kbp_violins/{i}.pdf"
 for (i in unique(df$facet_row)) {
     mbp <- round(df[df$region == i, "Mbp"], 2)
     gbp <- round(df[df$region == "Unique", "Mbp"] / 1000, 2)

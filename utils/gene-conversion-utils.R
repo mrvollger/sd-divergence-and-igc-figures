@@ -285,9 +285,10 @@ add_gene_list_col <- function(df,
 # method from https://mobilednajournal.biomedcentral.com/articles/10.1186/s13100-021-00232-4
 get_pvalues_from_igc <- function(df) {
     z <- df %>%
+        rowwise() %>%
         mutate(
             pvalue = pbinom(
-                floor((mismatches.liftover - name - 1) / 2),
+                max(floor((mismatches.liftover - name - 1) / 2), 0),
                 size = floor(mismatches.liftover),
                 prob = 0.5
             )
