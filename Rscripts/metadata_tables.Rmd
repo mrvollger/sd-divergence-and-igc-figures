@@ -1,0 +1,37 @@
+
+
+```{r}
+hifi <- fread(
+    "https://raw.githubusercontent.com/human-pangenomics/HPP_Year1_Data_Freeze_v1.0/main/read_metadata/hprc_year1_sample_level_misc_metadata_HiFi.csv"
+) %>%
+    select(sample_id, total_Gbp, mean, quartile_50, N50) %>%
+    setNames(paste0("HiFi_", names(.))) %>%
+    rename(sample_id = HiFi_sample_id)
+ont <- fread(
+    "https://raw.githubusercontent.com/human-pangenomics/HPP_Year1_Data_Freeze_v1.0/main/read_metadata/hprc_year1_sample_level_misc_metadata_ONT.csv"
+) %>%
+    select(File, Gb, N50, `100kb+`) %>%
+    setNames(paste0("ONT_", names(.))) %>%
+    rename(sample_id = ONT_File)
+asm <- fread("data/assembly_stats.tbl") %>%
+    setNames(paste0("assembly_", names(.))) %>%
+    mutate(
+        assembly_file = basename(assembly_file),
+        Maternal = grepl("mat|hap2", assembly_file),
+        Paternal = grepl("pat|hap1", assembly_file),
+        sample_id = gsub("(\\.|_).*", "", assembly_file),
+        sample_id = gsub("hg38", "GRCh38", sample_id)
+    ) %>%
+    relocate(sample_id) %>%
+    merge(pop_small %>% rename(sample_id = SampleID),
+        all.x = TRUE, by = "sample_id"
+    )
+```
+
+```{r}
+asm %>%
+    merge(hifi, by = "sample_id", all.x = TRUE) %>%
+    merge(ont, by = "sample_id", all.x = TRUE) %>%
+    arrange(ONT_N50) %>%
+    write.csv(file = "data/meta_data.csv", row.names = FALSE, quote = FALSE)
+```
