@@ -15,7 +15,9 @@ library(ggforce, help, pos = 2, lib.loc = NULL)
 library(ggh4x)
 conflicted::conflict_prefer(name = "select", winner = "dplyr")
 conflict_prefer("filter", "dplyr")
+conflict_prefer("ungroup", "dplyr")
 conflict_prefer("summarise", "dplyr")
+conflict_prefer("pivot_wider", "tidyr")
 ```
 
 ```{r}
@@ -25,8 +27,8 @@ source("load-data.R")
 IS_IGC <- "-no-igc"
 
 SD_var <- "SDnoIGC"
-SD_var <- "SD"
 SD_var <- "SDIGC"
+SD_var <- "SD"
 
 population <- ""
 population <- "_population"
@@ -332,7 +334,7 @@ for (population in c("")) { # , "_population"
             theme(
                 legend.position = "top"
             )
-
+        pca_plot
         # ggsave("tmp.pdf")
 
         ########################################################################################
@@ -390,11 +392,12 @@ for (population in c("")) { # , "_population"
             ) +
             scale_x_continuous(
                 "Frequency of mutation in unique sequence",
-                 trans = "log10") +
+                trans = "log10"
+            ) +
             annotation_logticks(side = "b") +
             ylab(TeX("$ \\; \\frac{SD \\; composition}{Unique  \\; composition}$")) +
             theme_minimal_grid()
-        #ggsave("tmp.pdf", plot=mutable_triplets)
+        # ggsave("tmp.pdf", plot=mutable_triplets)
         mutable_triplets
         mutable_triplets.df
         ########################################################################################
@@ -484,7 +487,7 @@ for (population in c("")) { # , "_population"
     }
 }
 
-saveWorkbook(wb, "tables/Triplet_fold_increases.xlsx", overwrite = TRUE)
+# saveWorkbook(wb, "tables/Triplet_fold_increases.xlsx", overwrite = TRUE)
 ```
 
 

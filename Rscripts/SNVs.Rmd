@@ -8,6 +8,8 @@ output: html_document
 ```{r load-data, include=FALSE}
 source("load-data.R")
 library(ggbeeswarm)
+conflict_prefer("summarize", "dplyr")
+conflict_prefer("pivot_longer", "tidyr")
 ```
 
 ```{r}
@@ -175,10 +177,10 @@ pal <- COLORS[unique(plot.df$region)]
 plot.df
 window <- median(plot.df$end - plot.df$start)
 window
+
 #
 # make plot
 #
-
 p <- plot.df %>%
     filter(bases > 9e3 & bases < 11e3) %>%
     ggplot() +
@@ -206,6 +208,46 @@ p <- plot.df %>%
     guides(fill = guide_legend(ncol = length(pal) / 2))
 ggsave("figures/snv_ecdf.pdf", width = 8, height = 6, plot = p)
 ```
+
+# ECDF without the top 2 %
+```{r}
+#
+# make plot - 2%
+#
+sd_ecdf <- ecdf(plot.df[region == "SD"]$snvs_per_10)
+sd_ecdf(78)
+p <- plot.df %>%
+    filter(bases > 9e3 & bases < 11e3) %>%
+    filter(!(region == "SD" & snvs_per_10 > 78)) %>%
+    ggplot() +
+    stat_ecdf(
+        aes(snvs_per_10, color = region),
+        size = 1.5, alpha = 0.75
+    ) +
+    scale_x_log10(
+        limits = c(fakeadd, 1000),
+        # breaks = c(fakeadd, 0.01, 0.1, 1, 10),
+        # labels = c("0.00", "0.01", "0.10", "1.00", "10.0")
+        breaks = c(fakeadd, 1, 10, 100, 1000),
+        labels = c("0", "1", "10", "100", "1000")
+    ) +
+    annotation_logticks(sides = "b") +
+    scale_fill_manual(values = pal) +
+    scale_color_manual(values = pal) +
+    xlab(glue("# SNVs in 10 kbp windows")) +
+    ylab("Cumulative fraction of windows") +
+    # ggtitle("Divergence of 10 kbp windows aligned to T2T-CHM13 v1.1",
+    #    subtitle = "(Minimum 1 Mbp alignment, SD windows are at least 95% SD)"
+    # ) +
+    theme_cowplot() +
+    theme(legend.position = "top", legend.title = element_blank()) +
+    guides(fill = guide_legend(ncol = length(pal) / 2))
+ggsave("figures/snv_ecdf_minus_top_2percent.pdf", width = 8, height = 6, plot = p)
+ggsave("tmp.pdf", width = 8, height = 6, plot = p)
+```
+
+
+
 
 ```{r ecdf all hap}
 #
@@ -235,6 +277,7 @@ df <- fread(infile) %>%
     mutate(Sample = gsub("_(1|2)", "", hap)) %>%
     merge(pop, by.x = "Sample", by.y = "SampleID", all.x = T) %>%
     mutate(Superpopulation = ifelse(is.na(Superpopulation), "EUR", as.character(Superpopulation))) %>%
+    arrange(Superpopulation) %>%
     as.data.table()
 
 unique(df[Superpopulation == "EUR"]$Sample)
@@ -328,8 +371,13 @@ fold_change.df <- df %>%
     # fc = SD / Unique
     # ) %>%
     data.table()
+non_afr <- df[Superpopulation != "AFR"]
+non_afr$Superpopulation <- "Non-AFR"
+non_afr
+df <- bind_rows(df, non_afr)
+df$Superpopulation <- factor(df$Superpopulation, levels = unique(df$Superpopulation))
 fold_change.df
-outfile() <- "figures/per_10_kbp_violins/{i}.pdf"
+outfile <- "figures/per_10_kbp_violins/{i}.pdf"
 for (i in unique(df$facet_row)) {
     mbp <- round(df[df$region == i, "Mbp"], 2)
     gbp <- round(df[df$region == "Unique", "Mbp"] / 1000, 2)
@@ -398,6 +446,40 @@ for (i in unique(df$facet_row)) {
     dev.off()
 }
 
+my_order <- c("SD", "Unique", "Exons", "AncientSDs", "RM", "Alu", "L1", "HERV")
+df %>%
+    filter(!grepl("Sat|\\+|\\-|MergedIGC|IGC|Acro|Inter", `region`)) %>%
+    mutate(region = factor(as.character(region), levels = my_order)) %>%
+    filter(Superpopulation %in% c("AFR", "Non-AFR")) %>%
+    ggplot(
+        aes(
+            x = region,
+            y = `# SNVs per 10 kbp`,
+            color = region, fill = region
+        )
+    ) +
+    geom_violin(alpha = 0.5) +
+    geom_jitter(width = 0.2, alpha = 0.75) +
+    geom_text(
+        data = . %>%
+            mutate(y = 0.9 * min(`# SNVs per 10 kbp`)) %>%
+            group_by(region, Superpopulation, y) %>%
+            summarize(
+                label = round(median(`# SNVs per 10 kbp`), 1)
+            ),
+        aes(y = y, label = label),
+        color = "black"
+    ) +
+    scale_x_discrete(guide = guide_axis(n.dodge = 1)) +
+    facet_col(~Superpopulation) +
+    scale_fill_manual(values = pcolors) +
+    scale_color_manual(values = pcolors) +
+    theme_minimal_grid() +
+    theme(legend.position = "none") +
+    xlab("Genomic region")
+ggsave("tmp.pdf", height = 5, width = 8)
+ggsave("figures/snv_per_10.pdf", height = 5, width = 8)
+
 igc_delta <- df %>%
     group_by(Sample, hap, Superpopulation) %>%
     dplyr::select(-facet_row, -Sex, -Population, -`# SNVs`, -Mbp) %>%
@@ -411,6 +493,23 @@ igc_delta <- df %>%
         hap = factor(as.character(hap), levels = unique(hap[order(percent_explained_by_igc)]))
     ) %>%
     data.table()
+
+df %>%
+    select(-Sex, -Population, -facet_row, -Sample) %>%
+    filter(Superpopulation != "Non-AFR") %>%
+    filter(!(region %in% c("SD+MergedIGC", "SD+SDIGC", "SD+SDnoIGC", "MergedIGC", "SD-All_IGC_Regions", "SDIGC", "SD+SDnoIGC", "SDnoIGC"))) %>%
+    group_by(Superpopulation, region) %>%
+    summarise(
+        `median # SNVs per 10 kbp` = median(`# SNVs per 10 kbp`),
+        `mean # SNVs per 10 kbp` = mean(`# SNVs per 10 kbp`),
+        `std # SNVs per 10 kbp` = sd(`# SNVs per 10 kbp`),
+        `median Mbp` = median(`Mbp`),
+        `mean Mbp` = mean(`Mbp`),
+        `std Mbp` = sd(`Mbp`),
+        `# of haplotpyes` = n(),
+    ) %>%
+    fwrite("tables/SNVs_by_regions.csv", row.names = F, quote = F)
+
 igc_delta
 library(ggbeeswarm)
 igc_delta_plot <- ggplot(
@@ -432,3 +531,4 @@ igc_delta_plot <- ggplot(
 
 ggsave("figures/igc_delta_plot.pdf")
 ```
+

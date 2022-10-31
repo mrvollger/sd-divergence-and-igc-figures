@@ -9,7 +9,7 @@ df.all$pvalue <- get_pvalues_from_igc(df.all)
 table(df.all$Superpopulation)
 igc.pval <- df.all %>%
     mutate(pcut = cut(pvalue,
-        breaks = c(0, 0.001, 0.01, 0.05, 0.1, 0.5, 1),
+        breaks = c(0, 0.01, 0.05, 0.1, 0.5, 1),
         include.lowest = TRUE
     )) %>%
     group_by(sample) %>%
@@ -33,28 +33,36 @@ df.ecdf <- igc.pval %>%
     group_by(sample, Superpopulation) %>%
     mutate(cum.bp = cumsum(length)) %>%
     group_by(pvalue, Superpopulation, sample, pcut) %>%
-    summarise(cum.bp = c(max(cum.bp), min(cum.bp)) / 1e6) %>%
+    summarise(
+        cum.bp = c(max(cum.bp), min(cum.bp)) / 1e6,
+        ave_sup = median(name)
+    ) %>%
     data.table()
 
 df.sum.ecdf <- igc.pval %>%
     arrange(pvalue) %>%
     group_by(Superpopulation) %>%
     mutate(cum.bp = cumsum(length) / length(unique(sample))) %>%
-    dplyr::select(cum.bp, pvalue, Superpopulation) %>%
+    dplyr::select(cum.bp, pvalue, Superpopulation, name) %>%
     group_by(pvalue, Superpopulation) %>%
-    summarise(cum.bp = c(max(cum.bp), min(cum.bp)) / 1e6) %>%
+    summarise(
+        cum.bp = c(max(cum.bp), min(cum.bp)) / 1e6,
+        ave_sup = median(name)
+    ) %>%
     data.table()
 
 df.text.ecdf <- df.ecdf %>%
     group_by(pcut, sample, Superpopulation) %>%
     summarise(
         cum.bp = max(cum.bp),
-        pcut = pcut[which.max(cum.bp)]
+        pcut = pcut[which.max(cum.bp)],
+        ave_sup = median(ave_sup),
     ) %>%
     group_by(pcut, Superpopulation) %>%
     summarise(
         sd = sd(cum.bp),
         cum.bp = mean(cum.bp),
+        ave_sup = median(ave_sup),
     ) %>%
     mutate(
         pvalue = as.numeric(gsub("\\]", "", gsub(".*,", "", pcut))),
@@ -79,6 +87,8 @@ p.mbp.gc <- ggplot(
         data = df.text.ecdf %>% filter(Superpopulation == "Total"),
         aes(label = label, group = "a"),
         nudge_y = 4,
+        nudge_x = -0.6,
+        size = 6,
         arrow = arrow(length = unit(0.1, "cm")), color = "black"
     ) +
     scale_y_continuous(labels = comma) +
@@ -130,6 +140,11 @@ my_ggsave("tmp.pdf", width = 12 * 0.75, height = 16 * 0.75, plot = p.mbp.gc)
 
 
 ```{r}
-
+igc.pval %>%
+    group_by(pcut) %>%
+    summarise(
+        mean(name),
+        median(name)
+    )
 ```
 

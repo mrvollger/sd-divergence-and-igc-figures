@@ -483,6 +483,12 @@ make_gc_ideogram(a, d, chrm,
 library(conflicted)
 conflicted::conflict_prefer(name = "rename", winner = "dplyr")
 conflict_prefer("rename", "dplyr")
+conflict_prefer("mutate", "dplyr")
+conflict_prefer("group_by", "dplyr")
+conflict_prefer("rename_with", "dplyr")
+conflict_prefer("select", "dplyr")
+conflict_prefer("summarise", "dplyr")
+conflict_prefer("group_by_at", "dplyr")
 
 out_igc <- IGC %>%
     # head(1000) %>%
@@ -513,6 +519,7 @@ out_igc <- IGC %>%
     dplyr::select(-Sample) %>%
     data.table()
 
+
 out_igc %>%
     openxlsx::write.xlsx("tables/Master_IGC.xlsx",
         colWidths = 10,
@@ -523,8 +530,9 @@ out_igc %>%
 
 out_igc %>% head(3)
 dim(out_igc)
-colnames(merged_df)
-colnames(out_igc)
+
+
+merged_df$pvalue <- get_pvalues_from_igc(merged_df)
 out_merged_df <- merged_df %>%
     dplyr::rename(setNames(names(.), gsub("\\.liftover", ".acceptor", names(.)))) %>%
     dplyr::rename("# of supporting SNVs" = name) %>%
@@ -535,7 +543,7 @@ out_merged_df <- merged_df %>%
     rename_with(function(c) {
         paste0(c, ".donor")
     }, matches("^(chrm|start|end|mismatches|perID_by_all)$")) %>%
-    select(-thickStart, -thickEnd, -igc_count, -`cum.bp`) %>%
+    select(-thickStart, -thickEnd, -igc_count, -`cum.bp`, -pvaluemerged_df) %>%
     as.data.table()
 
 out_merged_df %>%
@@ -545,6 +553,7 @@ out_merged_df %>%
         firstCol = TRUE,
         gridLines = FALSE, colNames = TRUE
     )
+out_merged_df %>% head(3)
 dim(out_merged_df)
 ```
 
@@ -989,8 +998,12 @@ igc_genes_of_interest
 
 z <- merged_df[(pvalue < 0.05) & (reference_start > 19e6) & (reference_end < 30e6) & (reference_name == "chr15"), ]
 z$gene_of_interest <- "chr15_19_30"
+y <- merged_df[(pvalue < 0.05) & (reference_start > 21260474) & (reference_end < 22866350) & (reference_name == "chr16"), ]
+y$gene_of_interest <- "chr16_NPIP_1"
+w <- merged_df[(pvalue < 0.05) & (reference_start > 21323835) & (reference_end < 21747698) & (reference_name == "chr16"), ]
+w$gene_of_interest <- "chr16_NPIP_2"
 
-igc_genes_of_interest <- rbind(igc_genes_of_interest, z)
+igc_genes_of_interest <- rbind(igc_genes_of_interest, z, y, w)
 igc_genes_of_interest$gene_of_interest %>%
     unique()
 length(igc_fig_genes)
@@ -1023,7 +1036,9 @@ regions_of_interest <- igc_genes_of_interest %>%
 regions_of_interest
 dim(regions_of_interest)
 
-regions_of_interest <- regions_of_interest[gene_of_interest == "chr15_19_30"]
+regions_of_interest <- regions_of_interest[
+    gene_of_interest %in% c("chr15_19_30", "chr16_NPIP_1", "chr16_NPIP_2")
+]
 i <- 1
 dt <- igc_genes_of_interest
 min_snv <- 0
@@ -1802,4 +1817,6 @@ kpPlotLinks(
 kpAddCytobands(kp)
 dev.off()
 ```
+
+
 

@@ -185,6 +185,12 @@ model <- lm(
     data = merged_sd_tmrca
 )
 summary(model)
+
+model <- lm(
+    SNVs_per_10 ~ scale(n_unique_igc),
+    data = merged_sd_tmrca
+)
+summary(model)
 ```
 
 
@@ -210,7 +216,7 @@ merged_sd_windows_info %>%
     # filter(pvalue <= 0.05) %>%
     ggplot(aes(x = 100 * maxFracMatch, y = SNVs_per_10)) +
     geom_hex() +
-    # stat_cor() +
+    stat_cor() +
     geom_smooth(method = "lm", se = FALSE) +
     scale_y_continuous(
         "# SNVs per 10 kbp",
@@ -338,4 +344,146 @@ kpPlotDensity(kp,
     data.panel = 1, window.size = 100e3, col = transparent(NEWCOLOR, 0.25)
 )
 dev.off()
+```
+
+
+# explained with only high confidence IGC
+```{r}
+IGC$pvalue <- get_pvalues_from_igc(IGC)
+igc_for_this <- IGC[IGC$pvalue < 0.05, ] %>%
+    rename(
+        `chrom` = "#reference_name.liftover",
+        start = reference_start.liftover,
+        end = reference_end.liftover,
+    ) %>%
+    mutate(hap = sample) %>%
+    group_by(hap)
+igc_for_this
+
+sd_1k_windows <- snv_windows[region == "SD"] %>%
+    select(-contains("anno_")) %>%
+    select(-contains("dist_"))
+sd_1k_windows
+dim(sd_1k_windows) / 1e3
+dim(igc_for_this) / 1e3
+
+tmp <- bed_intersect(igc_for_this[, c("chrom", "start", "end", "sample")], sd_1k_windows, suffix = c("", "_sd")) %>%
+    filter(sample == hap_sd)
+
+infile <- "data/sd-divergence-results/tables/snv_per_kbp.tbl"
+snvs_per_10.df <- fread(infile) %>%
+    filter(hap != "CHM1_2") %>%
+    filter(hap != "GRCh38_2")
+
+snvs_per_10.df %>%
+    group_by(region) %>%
+    summarise(
+        10e3 * sum(`# SNVs`) / sum(Mbp * 1e6),
+        mean(Mbp)
+    ) %>%
+    data.table()
+
+windows_with_p_value_igc %>%
+    group_by(n_unique_igc > 0) %>%
+    summarise(
+        mean(SNVs_per_10),
+        median(SNVs_per_10)
+    )
+
+Ave_SNVs_per_10_for_igc <- 10 * mean(tmp$num_snv_sd)
+Mbp_of_IGC_with_p_0.05 <- 4.30
+Ave_SNVs_per_10_sd <- 15.301890
+SD_Mbp <- 120.1
+Ave_SNVs_per_10_unique <- 9.566373
+
+SD_minus_high_igc <- (Ave_SNVs_per_10_sd * SD_Mbp - Ave_SNVs_per_10_for_igc * Mbp_of_IGC_with_p_0.05) / (SD_Mbp - Mbp_of_IGC_with_p_0.05)
+
+increase <- Ave_SNVs_per_10_sd / Ave_SNVs_per_10_unique - 1
+minus_high_igc_increase <- SD_minus_high_igc / Ave_SNVs_per_10_unique - 1
+
+100 * (1 - (minus_high_igc_increase) / increase)
+```
+
+
+
+
+# IGC length and # of supporting SNVs as a function of SD identity
+```{r}
+columns <- colnames(merged_igc)
+igc_with_sd <- bed_intersect(
+    merged_igc,
+    all_sd,
+    suffix = c("", "_SD")
+) %>%
+    group_by_at(vars(one_of(columns))) %>%
+    summarise(
+        fracMatch_SD = max(fracMatch_SD),
+        aln_len_SD = max(aln_len_SD)
+    ) %>%
+    mutate(
+        sd_div = 100 * (1 - fracMatch_SD + 1 / aln_len_SD)
+    )
+dim(igc_with_sd)
+dim(merged_igc)
+
+igc_with_sd %>%
+    filter(pvalue < 0.05) %>%
+    ggplot(aes(x = sd_div, y = name)) +
+    geom_hex() +
+    # stat_cor() +
+    # geom_smooth(method = "lm", se = F) +
+    scale_x_log10(
+        "% divergence between most identical overlapping SD",
+        label = comma
+    ) +
+    scale_y_log10(
+        "Number of supporting SNVs for IGC event",
+        label = comma
+    ) +
+    theme_minimal_grid() +
+    scale_fill_distiller("", palette = "Spectral", trans = "log10") +
+    annotation_logticks(side = "lb")
+ggsave("tmp.pdf", height = 6, width = 8)
+ggsave("figures/SD_divergence_vs_IGC_support.pdf", height = 6, width = 8)
+
+
+igc_with_sd %>%
+    filter(pvalue < 0.05) %>%
+    ggplot(aes(x = sd_div, y = end - start)) +
+    geom_hex() +
+    # stat_cor() +
+    # geom_smooth(method = "lm", se = F) +
+    scale_x_log10(
+        "% divergence between most identical overlapping SD",
+        label = comma
+    ) +
+    scale_y_log10(
+        "IGC event length",
+        label = comma,
+        limits = c(1000, NA)
+    ) +
+    theme_minimal_grid() +
+    scale_fill_distiller("", palette = "Spectral", trans = "log10") +
+    annotation_logticks(side = "lb")
+ggsave("tmp.pdf", height = 6, width = 8)
+ggsave("figures/SD_divergence_vs_IGC_len.pdf", height = 6, width = 8)
+
+igc_with_sd %>%
+    # filter(pvalue < 0.05) %>%
+    ggplot(aes(x = sd_div)) +
+    geom_histogram(bins = 40) +
+    scale_x_log10(
+        "% divergence between most identical overlapping SD",
+        label = comma
+    ) +
+    theme_minimal_grid() +
+    scale_fill_distiller("", palette = "Spectral", trans = "log10") +
+    ylab("Number of IGC events") +
+    annotation_logticks(side = "b")
+
+igc_with_sd %>%
+    filter(sd_div > 10) %>%
+    data.table()
+ggsave("tmp.pdf", height = 6, width = 8)
+ggsave("figures/SD_divergence_vs_IGC_count.pdf", height = 6, width = 8)
 ```
