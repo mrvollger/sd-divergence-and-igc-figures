@@ -1,4 +1,5 @@
 # Scripts for: Vollger et al., 2023 Increased mutation rate and interlocus gene conversion within human segmental duplications                                                                                                  
+[![DOI](https://zenodo.org/badge/474096015.svg)](https://zenodo.org/badge/latestdoi/474096015)
 
 The data used by these scripts is available on [Zenodo](https://doi.org/10.5281/zenodo.6792653). Unzip data.zip in the base directory of the repo.                                                         
 
