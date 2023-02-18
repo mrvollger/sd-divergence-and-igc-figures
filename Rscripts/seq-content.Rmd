@@ -18,6 +18,7 @@ conflict_prefer("filter", "dplyr")
 conflict_prefer("ungroup", "dplyr")
 conflict_prefer("summarise", "dplyr")
 conflict_prefer("pivot_wider", "tidyr")
+conflict_prefer("mutate", "dplyr")
 ```
 
 ```{r}
@@ -315,7 +316,7 @@ for (population in c("")) { # , "_population"
         # log scale per will suggestion
         spec_mat <- clr(spec_mat)
 
-        spectra_pca <- prcomp(spec_mat) # , scale. = TRUE)
+        spectra_pca <- prcomp(spec_mat, scale. = TRUE)
         sort(spectra_pca$rotation[, 1])
 
         pca_plot <- autoplot(spectra_pca,
@@ -378,7 +379,7 @@ for (population in c("")) { # , "_population"
         print(mutable_triplets_text)
 
         mutable_triplets <- mutable_triplets.df %>%
-            filter(!CpG) %>%
+            # filter(!CpG) %>%
             ggplot(aes(x = x, y = y, label = label)) +
             geom_text_repel(min.segment.length = 0) +
             geom_smooth(method = "lm", se = F, formula = y ~ x) +

@@ -1,0 +1,29 @@
+```{r}
+source("utils/gene-conversion-utils.R")
+```
+
+# add p-values
+```{r}
+unique_gc <- fread("/net/eichler/vol26/projects/assembly_breaks/nobackups/asm-to-reference-alignment/results/CHM13_V1.1_unique_gc/gene-conversion/acceptor_gene_conversion_windows.bed") %>%
+    filter(`#reference_name.liftover` != "chrY" & `reference_name` != "chrY") %>%
+    filter(sample != "CHM1_2") %>%
+    filter(sample != "GRCh38_2")
+unique_gc$pvalue <- get_pvalues_from_igc(unique_gc)
+unique_gc
+```
+
+
+```{r}
+unique_gc %>%
+    group_by(sample) %>%
+    summarise(bp = sum(reference_end.liftover - reference_start.liftover), n = n()) %>%
+    summarise(bp = mean(bp), n = mean(n))
+```
+
+```{r}
+unique_gc %>%
+    filter(pvalue < 0.05) %>%
+    group_by(sample) %>%
+    summarise(bp = sum(reference_end.liftover - reference_start.liftover), n = n()) %>%
+    summarise(bp = mean(bp), t = sum(n), n = mean(n))
+```
